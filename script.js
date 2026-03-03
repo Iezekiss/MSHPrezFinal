@@ -1,0 +1,1073 @@
+// Состояние приложения
+let slides = [];
+let currentSlideIndex = 0;
+let selectedElement = null;
+let elementIdCounter = 0;
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', () => {
+    initializeApp();
+    setupEventListeners();
+    createNewSlide();
+});
+
+function initializeApp() {
+    // Создаем первый слайд
+    slides = [];
+    currentSlideIndex = 0;
+}
+
+function setupEventListeners() {
+    // Кнопки управления слайдами
+    document.getElementById('addSlideBtn').addEventListener('click', createNewSlide);
+    document.getElementById('prevSlideBtn').addEventListener('click', () => changeSlide(-1));
+    document.getElementById('nextSlideBtn').addEventListener('click', () => changeSlide(1));
+
+    // Добавление элементов
+    document.getElementById('addTextBtn').addEventListener('click', addTextElement);
+    document.getElementById('addImageBtn').addEventListener('click', addImageFromUrl);
+    document.getElementById('uploadImageBtn').addEventListener('click', () => {
+        document.getElementById('fileInput').click();
+    });
+    document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+
+    // Анимация
+    document.getElementById('applyAnimationBtn').addEventListener('click', applyAnimation);
+
+    // Стили
+    document.getElementById('textColorPicker').addEventListener('input', updateTextColor);
+    document.getElementById('fontSizeSlider').addEventListener('input', updateFontSize);
+    document.getElementById('slideBgColorPicker').addEventListener('input', updateSlideBackgroundFromPicker);
+    document.getElementById('slideBgHexInput').addEventListener('input', updateSlideBackgroundFromHex);
+    document.getElementById('fontFamilySelect').addEventListener('change', updateFontFamily);
+    document.querySelectorAll('#textAlignGroup .btn-toggle').forEach(btn => {
+        btn.addEventListener('click', () => updateTextAlign(btn.dataset.align));
+    });
+    document.getElementById('boldToggle').addEventListener('click', toggleBold);
+    document.getElementById('italicToggle').addEventListener('click', toggleItalic);
+    document.getElementById('underlineToggle').addEventListener('click', toggleUnderline);
+
+    // Экспорт
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        document.getElementById('exportModal').style.display = 'block';
+    });
+    document.getElementById('exportPDFBtn').addEventListener('click', exportToPDF);
+
+    // Закрытие модального окна
+    document.querySelector('.close').addEventListener('click', () => {
+        document.getElementById('exportModal').style.display = 'none';
+    });
+
+    // Загрузка
+    document.getElementById('loadBtn').addEventListener('click', () => {
+        document.getElementById('loadFileInput').click();
+    });
+    document.getElementById('loadFileInput').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            loadPresentation(e.target.files[0]);
+        }
+    });
+
+    // Закрытие модального окна при клике вне его
+    window.addEventListener('click', (e) => {
+        const modal = document.getElementById('exportModal');
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+
+    // Добавление фигур
+    document.getElementById('addRectangleBtn').addEventListener('click', () => addShape('rectangle'));
+    document.getElementById('addCircleBtn').addEventListener('click', () => addShape('circle'));
+    document.getElementById('addTriangleBtn').addEventListener('click', () => addShape('triangle'));
+    document.getElementById('addLineBtn').addEventListener('click', () => addShape('line'));
+    
+    // Цвета фигур
+    document.getElementById('shapeFillColorPicker').addEventListener('input', updateShapeFillColor);
+    document.getElementById('shapeStrokeColorPicker').addEventListener('input', updateShapeStrokeColor);
+
+    // Аккордеон: открываем только одну секцию
+    document.querySelectorAll('.sidebar-accordion').forEach(details => {
+        details.addEventListener('toggle', () => {
+            if (details.open) {
+                document.querySelectorAll('.sidebar-accordion').forEach(other => {
+                    if (other !== details) {
+                        other.open = false;
+                    }
+                });
+            }
+        });
+    });
+}
+
+// Управление слайдами
+function createNewSlide() {
+    const slideId = slides.length + 1;
+    slides.push({
+        id: slideId,
+        elements: [],
+        background: '#ffffff'
+    });
+    currentSlideIndex = slides.length - 1;
+    renderSlide();
+    updateSlidesList();
+    updateSlideCounter();
+}
+
+function changeSlide(direction) {
+    const newIndex = currentSlideIndex + direction;
+    if (newIndex >= 0 && newIndex < slides.length) {
+        currentSlideIndex = newIndex;
+        renderSlide();
+        updateSlideCounter();
+    }
+}
+
+function renderSlide() {
+    const slideContent = document.getElementById('slideContent');
+    slideContent.innerHTML = '';
+    selectedElement = null;
+
+    const currentSlide = slides[currentSlideIndex];
+    if (!currentSlide) return;
+    const slideEl = document.getElementById('currentSlide');
+    slideEl.style.background = currentSlide.background || '#ffffff';
+    syncSlideBackgroundControls(currentSlide.background || '#ffffff');
+
+    currentSlide.elements.forEach(element => {
+        const elementDiv = createElementDiv(element);
+        slideContent.appendChild(elementDiv);
+    });
+
+    // Обновляем активный слайд в списке
+    updateSlidesList();
+}
+
+function updateSlidesList() {
+    const slidesList = document.getElementById('slidesList');
+    slidesList.innerHTML = '';
+
+    slides.forEach((slide, index) => {
+        const thumbnail = document.createElement('div');
+        thumbnail.className = 'slide-thumbnail';
+        thumbnail.draggable = true;
+        thumbnail.dataset.index = index;
+        if (index === currentSlideIndex) {
+            thumbnail.classList.add('active');
+        }
+        
+        const slideText = document.createElement('span');
+        slideText.textContent = `Слайд ${slide.id}`;
+        thumbnail.appendChild(slideText);
+        
+        let deleteBtn = null;
+        const actions = document.createElement('div');
+        actions.className = 'slide-actions';
+        
+        const duplicateBtn = document.createElement('button');
+        duplicateBtn.textContent = '⧉';
+        duplicateBtn.className = 'duplicate-slide-btn';
+        duplicateBtn.title = 'Дублировать слайд';
+        duplicateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            duplicateSlide(index);
+        });
+        actions.appendChild(duplicateBtn);
+
+        if (slides.length > 1) {
+            deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '×';
+            deleteBtn.className = 'delete-slide-btn';
+            deleteBtn.style.cssText = 'float: right; background: #ff4444; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 14px;';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteSlide(index);
+            });
+            actions.appendChild(deleteBtn);
+        }
+        
+        thumbnail.appendChild(actions);
+        
+        thumbnail.addEventListener('click', (e) => {
+            if (!deleteBtn || e.target !== deleteBtn) {
+                currentSlideIndex = index;
+                renderSlide();
+                updateSlideCounter();
+            }
+        });
+
+        thumbnail.addEventListener('dragstart', (e) => {
+            thumbnail.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(index));
+        });
+
+        thumbnail.addEventListener('dragend', () => {
+            thumbnail.classList.remove('dragging');
+            document.querySelectorAll('.slide-thumbnail').forEach(el => {
+                el.classList.remove('drag-over');
+            });
+        });
+
+        thumbnail.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            thumbnail.classList.add('drag-over');
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        thumbnail.addEventListener('dragleave', () => {
+            thumbnail.classList.remove('drag-over');
+        });
+
+        thumbnail.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const toIndex = parseInt(thumbnail.dataset.index, 10);
+            if (!Number.isNaN(fromIndex) && !Number.isNaN(toIndex)) {
+                moveSlide(fromIndex, toIndex);
+            }
+            thumbnail.classList.remove('drag-over');
+        });
+
+        slidesList.appendChild(thumbnail);
+    });
+}
+
+function updateSlideCounter() {
+    document.getElementById('slideCounter').textContent = 
+        `Слайд ${currentSlideIndex + 1} из ${slides.length}`;
+}
+
+// Добавление элементов
+function addTextElement() {
+    const elementId = `element-${++elementIdCounter}`;
+    const element = {
+        id: elementId,
+        type: 'text',
+        content: 'Нажмите для редактирования',
+        x: 100,
+        y: 100,
+        width: 500,
+        height: 200,
+        fontSize: 24,
+        fontFamily: 'Segoe UI',
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        textAlign: 'left',
+        color: '#000000',
+        animation: '',
+        collapsed: false
+    };
+
+    slides[currentSlideIndex].elements.push(element);
+    renderSlide();
+    selectElement(elementId);
+}
+
+function addImageFromUrl() {
+    const url = document.getElementById('imageUrlInput').value.trim();
+    if (!url) {
+        alert('Пожалуйста, введите URL изображения');
+        return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        const elementId = `element-${++elementIdCounter}`;
+        const element = {
+            id: elementId,
+            type: 'image',
+            src: url,
+            x: 200,
+            y: 200,
+            width: img.width > 400 ? 400 : img.width,
+            height: img.height > 300 ? 300 : img.height,
+            animation: ''
+        };
+
+        slides[currentSlideIndex].elements.push(element);
+        renderSlide();
+        selectElement(elementId);
+        document.getElementById('imageUrlInput').value = '';
+    };
+    img.onerror = () => {
+        alert('Не удалось загрузить изображение. Проверьте URL.');
+    };
+    img.src = url;
+}
+
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const elementId = `element-${++elementIdCounter}`;
+        const img = new Image();
+        img.onload = () => {
+            const element = {
+                id: elementId,
+                type: 'image',
+                src: e.target.result,
+                x: 200,
+                y: 200,
+                width: img.width > 400 ? 400 : img.width,
+                height: img.height > 300 ? 300 : img.height,
+                animation: ''
+            };
+
+            slides[currentSlideIndex].elements.push(element);
+            renderSlide();
+            selectElement(elementId);
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function createElementDiv(element) {
+    const div = document.createElement('div');
+    div.className = 'slide-element';
+    div.id = element.id;
+    div.style.left = element.x + 'px';
+    div.style.top = element.y + 'px';
+    div.style.width = element.width + 'px';
+    div.style.height = element.height + 'px';
+
+    if (element.animation) {
+        div.classList.add(`animate-${element.animation}`);
+    }
+
+    if (element.type === 'text') {
+        // Кнопка сворачивания/разворачивания
+        const collapseBtn = document.createElement('button');
+        collapseBtn.className = 'collapse-btn';
+        collapseBtn.textContent = element.collapsed ? '▶' : '▼';
+        collapseBtn.title = element.collapsed ? 'Развернуть' : 'Свернуть';
+        collapseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            element.collapsed = !element.collapsed;
+            renderSlide();
+            selectElement(element.id);
+        });
+        div.appendChild(collapseBtn);
+        
+        const textarea = document.createElement('textarea');
+        textarea.className = 'slide-text';
+        textarea.value = element.content;
+        textarea.style.fontSize = element.fontSize + 'px';
+        textarea.style.color = element.color;
+        textarea.style.fontFamily = element.fontFamily || 'Segoe UI';
+        textarea.style.fontWeight = element.fontWeight || 'normal';
+        textarea.style.fontStyle = element.fontStyle || 'normal';
+        textarea.style.textDecoration = element.textDecoration || 'none';
+        textarea.style.textAlign = element.textAlign || 'left';
+        textarea.style.width = '100%';
+        textarea.style.height = element.collapsed ? '30px' : '100%';
+        textarea.style.overflow = element.collapsed ? 'hidden' : 'auto';
+        textarea.style.resize = 'both';
+        textarea.addEventListener('input', (e) => {
+            element.content = e.target.value;
+        });
+        
+        // При клике на textarea - редактируем, не перетаскиваем
+        textarea.addEventListener('mousedown', (e) => {
+            e.stopPropagation(); // Останавливаем всплытие события
+        });
+        
+        div.appendChild(textarea);
+    } else if (element.type === 'image') {
+        const img = document.createElement('img');
+        img.className = 'slide-image';
+        img.src = element.src;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.draggable = false;
+        div.appendChild(img);
+        
+        // Элементы управления размером для изображений
+        if (div.classList.contains('selected')) {
+            addResizeHandles(div, element);
+        }
+    } else if (element.type === 'shape') {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '100%');
+        svg.setAttribute('height', '100%');
+        svg.style.position = 'absolute';
+        svg.style.top = '0';
+        svg.style.left = '0';
+        
+        let shapeElement;
+        const fillColor = element.fillColor || '#667eea';
+        const strokeColor = element.strokeColor || '#000000';
+        const strokeWidth = element.strokeWidth || 2;
+        
+        switch(element.shapeType) {
+            case 'rectangle':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                shapeElement.setAttribute('width', '100%');
+                shapeElement.setAttribute('height', '100%');
+                shapeElement.setAttribute('fill', fillColor);
+                shapeElement.setAttribute('stroke', strokeColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
+            case 'circle':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                shapeElement.setAttribute('cx', '50%');
+                shapeElement.setAttribute('cy', '50%');
+                shapeElement.setAttribute('r', '45%');
+                shapeElement.setAttribute('fill', fillColor);
+                shapeElement.setAttribute('stroke', strokeColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
+            case 'triangle':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                shapeElement.setAttribute('points', '50%,10% 90%,90% 10%,90%');
+                shapeElement.setAttribute('fill', fillColor);
+                shapeElement.setAttribute('stroke', strokeColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
+            case 'line':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                shapeElement.setAttribute('x1', '10%');
+                shapeElement.setAttribute('y1', '50%');
+                shapeElement.setAttribute('x2', '90%');
+                shapeElement.setAttribute('y2', '50%');
+                shapeElement.setAttribute('stroke', fillColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
+        }
+        
+        if (shapeElement) {
+            shapeElement.className = 'shape-element';
+            svg.appendChild(shapeElement);
+            div.appendChild(svg);
+        }
+        
+        // Элементы управления размером для фигур
+        if (div.classList.contains('selected')) {
+            addResizeHandles(div, element);
+        }
+    }
+
+    // Кнопка удаления
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'delete-btn';
+    deleteBtn.textContent = '×';
+    deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteElement(element.id);
+    });
+    div.appendChild(deleteBtn);
+
+    // Перемещение элемента
+    makeDraggable(div, element);
+
+    // Выбор элемента
+    div.addEventListener('click', (e) => {
+        // Разрешаем выбор при клике на SVG элементы (фигуры)
+        const isSVGElement = e.target.tagName === 'svg' || 
+                             e.target.tagName === 'rect' || 
+                             e.target.tagName === 'circle' || 
+                             e.target.tagName === 'polygon' || 
+                             e.target.tagName === 'line' ||
+                             e.target.classList.contains('shape-element');
+        
+        if (e.target !== deleteBtn && 
+            !e.target.classList.contains('resize-handle') && 
+            !e.target.classList.contains('collapse-btn')) {
+            selectElement(element.id);
+        }
+    });
+
+    return div;
+}
+
+// Добавление элементов управления размером для изображений и фигур
+function addResizeHandles(elementDiv, element) {
+    // Удаляем старые handles если есть
+    elementDiv.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    
+    if (element.type !== 'image' && element.type !== 'shape') return;
+    
+    const handles = [
+        { position: 'nw', cursor: 'nw-resize' },
+        { position: 'ne', cursor: 'ne-resize' },
+        { position: 'sw', cursor: 'sw-resize' },
+        { position: 'se', cursor: 'se-resize' },
+        { position: 'n', cursor: 'n-resize' },
+        { position: 's', cursor: 's-resize' },
+        { position: 'w', cursor: 'w-resize' },
+        { position: 'e', cursor: 'e-resize' }
+    ];
+    
+    handles.forEach(handle => {
+        const handleDiv = document.createElement('div');
+        handleDiv.className = `resize-handle resize-handle-${handle.position}`;
+        handleDiv.style.cssText = `
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #667eea;
+            border: 2px solid white;
+            border-radius: 50%;
+            cursor: ${handle.cursor};
+            z-index: 1000;
+        `;
+        
+        // Позиционирование
+        switch(handle.position) {
+            case 'nw': handleDiv.style.top = '-5px'; handleDiv.style.left = '-5px'; break;
+            case 'ne': handleDiv.style.top = '-5px'; handleDiv.style.right = '-5px'; break;
+            case 'sw': handleDiv.style.bottom = '-5px'; handleDiv.style.left = '-5px'; break;
+            case 'se': handleDiv.style.bottom = '-5px'; handleDiv.style.right = '-5px'; break;
+            case 'n': handleDiv.style.top = '-5px'; handleDiv.style.left = '50%'; handleDiv.style.transform = 'translateX(-50%)'; break;
+            case 's': handleDiv.style.bottom = '-5px'; handleDiv.style.left = '50%'; handleDiv.style.transform = 'translateX(-50%)'; break;
+            case 'w': handleDiv.style.left = '-5px'; handleDiv.style.top = '50%'; handleDiv.style.transform = 'translateY(-50%)'; break;
+            case 'e': handleDiv.style.right = '-5px'; handleDiv.style.top = '50%'; handleDiv.style.transform = 'translateY(-50%)'; break;
+        }
+        
+        makeResizable(handleDiv, elementDiv, element, handle.position);
+        elementDiv.appendChild(handleDiv);
+    });
+}
+
+// Функция изменения размера
+function makeResizable(handle, elementDiv, element, position) {
+    let isResizing = false;
+    let startX, startY, startWidth, startHeight, startLeft, startTop;
+    
+    handle.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        isResizing = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startWidth = element.width;
+        startHeight = element.height;
+        startLeft = element.x;
+        startTop = element.y;
+        
+        document.addEventListener('mousemove', onResizeMove);
+        document.addEventListener('mouseup', onResizeUp);
+        e.preventDefault();
+    });
+    
+    function onResizeMove(e) {
+        if (!isResizing) return;
+        
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        let newWidth = startWidth;
+        let newHeight = startHeight;
+        let newX = startLeft;
+        let newY = startTop;
+        
+        // Минимальный размер
+        const minSize = 50;
+        
+        switch(position) {
+            case 'se':
+                newWidth = Math.max(minSize, startWidth + deltaX);
+                newHeight = Math.max(minSize, startHeight + deltaY);
+                break;
+            case 'sw':
+                newWidth = Math.max(minSize, startWidth - deltaX);
+                newHeight = Math.max(minSize, startHeight + deltaY);
+                newX = startLeft + (startWidth - newWidth);
+                break;
+            case 'ne':
+                newWidth = Math.max(minSize, startWidth + deltaX);
+                newHeight = Math.max(minSize, startHeight - deltaY);
+                newY = startTop + (startHeight - newHeight);
+                break;
+            case 'nw':
+                newWidth = Math.max(minSize, startWidth - deltaX);
+                newHeight = Math.max(minSize, startHeight - deltaY);
+                newX = startLeft + (startWidth - newWidth);
+                newY = startTop + (startHeight - newHeight);
+                break;
+            case 'e':
+                newWidth = Math.max(minSize, startWidth + deltaX);
+                break;
+            case 'w':
+                newWidth = Math.max(minSize, startWidth - deltaX);
+                newX = startLeft + (startWidth - newWidth);
+                break;
+            case 's':
+                newHeight = Math.max(minSize, startHeight + deltaY);
+                break;
+            case 'n':
+                newHeight = Math.max(minSize, startHeight - deltaY);
+                newY = startTop + (startHeight - newHeight);
+                break;
+        }
+        
+        element.width = newWidth;
+        element.height = newHeight;
+        element.x = newX;
+        element.y = newY;
+        
+        elementDiv.style.width = newWidth + 'px';
+        elementDiv.style.height = newHeight + 'px';
+        elementDiv.style.left = newX + 'px';
+        elementDiv.style.top = newY + 'px';
+    }
+    
+    function onResizeUp() {
+        isResizing = false;
+        document.removeEventListener('mousemove', onResizeMove);
+        document.removeEventListener('mouseup', onResizeUp);
+    }
+}
+
+function makeDraggable(elementDiv, element) {
+    let isDragging = false;
+    let startX, startY, startLeft, startTop;
+
+    elementDiv.addEventListener('mousedown', (e) => {
+        // Если клик на textarea, не начинаем перетаскивание (событие уже остановлено в textarea)
+        if (e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = element.x;
+        startTop = element.y;
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
+    });
+
+    function onMouseMove(e) {
+        if (!isDragging) return;
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        element.x = startLeft + deltaX;
+        element.y = startTop + deltaY;
+        elementDiv.style.left = element.x + 'px';
+        elementDiv.style.top = element.y + 'px';
+    }
+
+    function onMouseUp() {
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    }
+}
+
+function selectElement(elementId) {
+    // Убираем выделение с предыдущего элемента и удаляем старые handles
+    document.querySelectorAll('.slide-element').forEach(el => {
+        el.classList.remove('selected');
+        el.querySelectorAll('.resize-handle').forEach(h => h.remove());
+    });
+
+    // Выделяем новый элемент
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.classList.add('selected');
+        selectedElement = slides[currentSlideIndex].elements.find(el => el.id === elementId);
+        
+        // Добавляем элементы управления размером для изображений и фигур
+        if (selectedElement && (selectedElement.type === 'image' || selectedElement.type === 'shape')) {
+            addResizeHandles(element, selectedElement);
+        }
+        
+        // Обновляем цветовые пикеры для фигур
+        if (selectedElement && selectedElement.type === 'shape') {
+            document.getElementById('shapeFillColorPicker').value = selectedElement.fillColor || '#667eea';
+            document.getElementById('shapeStrokeColorPicker').value = selectedElement.strokeColor || '#000000';
+        }
+
+        if (selectedElement && selectedElement.type === 'text') {
+            syncTextControls(selectedElement);
+        }
+    }
+}
+
+function deleteElement(elementId) {
+    const slide = slides[currentSlideIndex];
+    slide.elements = slide.elements.filter(el => el.id !== elementId);
+    renderSlide();
+}
+
+function deleteSlide(index) {
+    if (slides.length <= 1) {
+        alert('Нельзя удалить последний слайд!');
+        return;
+    }
+    
+    if (confirm('Вы уверены, что хотите удалить этот слайд?')) {
+        slides.splice(index, 1);
+        if (currentSlideIndex >= slides.length) {
+            currentSlideIndex = slides.length - 1;
+        }
+        renderSlide();
+        updateSlidesList();
+        updateSlideCounter();
+    }
+}
+
+function duplicateSlide(index) {
+    const source = slides[index];
+    if (!source) return;
+
+    const clone = JSON.parse(JSON.stringify(source));
+    clone.id = slides.length + 1;
+    clone.elements = clone.elements.map(el => {
+        const newId = `element-${++elementIdCounter}`;
+        return { ...el, id: newId };
+    });
+
+    const insertIndex = index + 1;
+    slides.splice(insertIndex, 0, clone);
+    currentSlideIndex = insertIndex;
+    renderSlide();
+    updateSlidesList();
+    updateSlideCounter();
+}
+function moveSlide(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return;
+    if (fromIndex < 0 || toIndex < 0 || fromIndex >= slides.length || toIndex >= slides.length) return;
+
+    const [moved] = slides.splice(fromIndex, 1);
+    slides.splice(toIndex, 0, moved);
+
+    if (currentSlideIndex === fromIndex) {
+        currentSlideIndex = toIndex;
+    } else if (fromIndex < currentSlideIndex && toIndex >= currentSlideIndex) {
+        currentSlideIndex -= 1;
+    } else if (fromIndex > currentSlideIndex && toIndex <= currentSlideIndex) {
+        currentSlideIndex += 1;
+    }
+
+    renderSlide();
+    updateSlideCounter();
+}
+
+// Анимация
+function applyAnimation() {
+    if (!selectedElement) {
+        alert('Выберите элемент для применения анимации');
+        return;
+    }
+
+    const animation = document.getElementById('animationSelect').value;
+    if (!animation) {
+        alert('Выберите тип анимации');
+        return;
+    }
+
+    selectedElement.animation = animation;
+    renderSlide();
+    selectElement(selectedElement.id);
+}
+
+// Стили
+function updateTextColor() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    const color = document.getElementById('textColorPicker').value;
+    selectedElement.color = color;
+    
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.color = color;
+    }
+}
+
+function updateFontSize() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    const fontSize = document.getElementById('fontSizeSlider').value;
+    selectedElement.fontSize = parseInt(fontSize);
+    
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.fontSize = fontSize + 'px';
+    }
+    
+    document.getElementById('fontSizeValue').textContent = fontSize + 'px';
+}
+
+function updateSlideBackgroundFromPicker() {
+    const color = document.getElementById('slideBgColorPicker').value;
+    applySlideBackground(color);
+}
+
+function updateSlideBackgroundFromHex() {
+    const hex = document.getElementById('slideBgHexInput').value.trim();
+    if (!isValidHexColor(hex)) {
+        return;
+    }
+    const normalized = normalizeHex(hex);
+    applySlideBackground(normalized);
+}
+
+function applySlideBackground(color) {
+    const currentSlide = slides[currentSlideIndex];
+    if (!currentSlide) return;
+    currentSlide.background = color;
+    const slideEl = document.getElementById('currentSlide');
+    slideEl.style.background = color;
+    document.getElementById('slideBgColorPicker').value = color;
+    document.getElementById('slideBgHexInput').value = color;
+}
+
+function syncSlideBackgroundControls(color) {
+    document.getElementById('slideBgColorPicker').value = color;
+    document.getElementById('slideBgHexInput').value = color;
+}
+
+function isValidHexColor(value) {
+    return /^#?([0-9a-fA-F]{6})$/.test(value);
+}
+
+function normalizeHex(value) {
+    return value.startsWith('#') ? value.toLowerCase() : `#${value.toLowerCase()}`;
+}
+
+function updateFontFamily() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    const fontFamily = document.getElementById('fontFamilySelect').value;
+    selectedElement.fontFamily = fontFamily;
+    
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.fontFamily = fontFamily;
+    }
+}
+
+function updateTextAlign(align) {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    selectedElement.textAlign = align;
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.textAlign = align;
+    }
+    
+    document.querySelectorAll('#textAlignGroup .btn-toggle').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.align === align);
+    });
+}
+
+function toggleBold() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    selectedElement.fontWeight = selectedElement.fontWeight === 'bold' ? 'normal' : 'bold';
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.fontWeight = selectedElement.fontWeight;
+    }
+    document.getElementById('boldToggle').classList.toggle('active', selectedElement.fontWeight === 'bold');
+}
+
+function toggleItalic() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    selectedElement.fontStyle = selectedElement.fontStyle === 'italic' ? 'normal' : 'italic';
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.fontStyle = selectedElement.fontStyle;
+    }
+    document.getElementById('italicToggle').classList.toggle('active', selectedElement.fontStyle === 'italic');
+}
+
+function toggleUnderline() {
+    if (!selectedElement || selectedElement.type !== 'text') return;
+    
+    selectedElement.textDecoration = selectedElement.textDecoration === 'underline' ? 'none' : 'underline';
+    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
+    if (textarea) {
+        textarea.style.textDecoration = selectedElement.textDecoration;
+    }
+    document.getElementById('underlineToggle').classList.toggle('active', selectedElement.textDecoration === 'underline');
+}
+
+function syncTextControls(element) {
+    document.getElementById('textColorPicker').value = element.color || '#000000';
+    const fontSize = element.fontSize || 24;
+    document.getElementById('fontSizeSlider').value = fontSize;
+    document.getElementById('fontSizeValue').textContent = fontSize + 'px';
+    
+    document.getElementById('fontFamilySelect').value = element.fontFamily || 'Segoe UI';
+    
+    const align = element.textAlign || 'left';
+    document.querySelectorAll('#textAlignGroup .btn-toggle').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.align === align);
+    });
+    
+    document.getElementById('boldToggle').classList.toggle('active', (element.fontWeight || 'normal') === 'bold');
+    document.getElementById('italicToggle').classList.toggle('active', (element.fontStyle || 'normal') === 'italic');
+    document.getElementById('underlineToggle').classList.toggle('active', (element.textDecoration || 'none') === 'underline');
+}
+
+// Экспорт
+async function exportToPDF() {
+    if (!slides || slides.length === 0) {
+        alert('Нет слайдов для экспорта');
+        return;
+    }
+
+    // Скрываем модалку
+    document.getElementById('exportModal').style.display = 'none';
+
+    try {
+        // Используем jsPDF напрямую для более надежного экспорта
+        const jsPDF = window.jspdf.jsPDF || window.jspdf;
+        const pdf = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
+        });
+
+        const slideWidth = 900; // ширина слайда в пикселях
+        const slideHeight = 506; // высота слайда в пикселях
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const scale = Math.min(pdfWidth / slideWidth, pdfHeight / slideHeight) * 0.95;
+
+        // Сохраняем текущий слайд
+        const savedSlideIndex = currentSlideIndex;
+
+        for (let i = 0; i < slides.length; i++) {
+            if (i > 0) {
+                pdf.addPage();
+            }
+
+            // Переключаемся на нужный слайд и рендерим его
+            currentSlideIndex = i;
+            renderSlide();
+
+            // Ждем рендеринга
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            const slideElement = document.getElementById('currentSlide');
+            
+            // Ждем загрузки всех изображений
+            const imgs = slideElement.querySelectorAll('img');
+            await Promise.all(Array.from(imgs).map(img => {
+                if (img.complete) return Promise.resolve();
+                return new Promise((resolve) => {
+                    img.onload = resolve;
+                    img.onerror = resolve;
+                    setTimeout(resolve, 2000); // таймаут на случай проблем
+                });
+            }));
+
+            // Конвертируем слайд в canvas
+            const canvas = await html2canvas(slideElement, {
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff',
+                logging: false,
+                width: slideWidth,
+                height: slideHeight
+            });
+
+            // Добавляем canvas в PDF
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+            const imgWidth = slideWidth * scale;
+            const imgHeight = slideHeight * scale;
+            const x = (pdfWidth - imgWidth) / 2;
+            const y = (pdfHeight - imgHeight) / 2;
+
+            pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+        }
+
+        // Восстанавливаем текущий слайд
+        currentSlideIndex = savedSlideIndex;
+        renderSlide();
+
+        // Сохраняем PDF
+        pdf.save('presentation.pdf');
+    } catch (error) {
+        console.error('Ошибка при экспорте:', error);
+        alert('Ошибка при экспорте PDF. Проверьте консоль для деталей.');
+    }
+}
+
+
+// Добавление фигур
+function addShape(shapeType) {
+    const elementId = `element-${++elementIdCounter}`;
+    const fillColor = document.getElementById('shapeFillColorPicker').value;
+    const strokeColor = document.getElementById('shapeStrokeColorPicker').value;
+    
+    const element = {
+        id: elementId,
+        type: 'shape',
+        shapeType: shapeType,
+        x: 200,
+        y: 200,
+        width: 200,
+        height: 150,
+        fillColor: fillColor,
+        strokeColor: strokeColor,
+        strokeWidth: 2,
+        animation: ''
+    };
+
+    slides[currentSlideIndex].elements.push(element);
+    renderSlide();
+    selectElement(elementId);
+}
+
+function updateShapeFillColor() {
+    if (!selectedElement || selectedElement.type !== 'shape') return;
+    
+    const color = document.getElementById('shapeFillColorPicker').value;
+    selectedElement.fillColor = color;
+    
+    const shapeElement = document.querySelector(`#${selectedElement.id} .shape-element`);
+    if (shapeElement) {
+        if (selectedElement.shapeType === 'line') {
+            shapeElement.setAttribute('stroke', color);
+        } else {
+            shapeElement.setAttribute('fill', color);
+        }
+    }
+}
+
+function updateShapeStrokeColor() {
+    if (!selectedElement || selectedElement.type !== 'shape') return;
+    
+    const color = document.getElementById('shapeStrokeColorPicker').value;
+    selectedElement.strokeColor = color;
+    
+    const shapeElement = document.querySelector(`#${selectedElement.id} .shape-element`);
+    if (shapeElement) {
+        shapeElement.setAttribute('stroke', color);
+    }
+}
+
+// Загрузка сохраненной презентации
+function loadPresentation(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            slides = JSON.parse(e.target.result);
+            currentSlideIndex = 0;
+            elementIdCounter = Math.max(...slides.flatMap(s => s.elements.map(el => {
+                const match = el.id.match(/element-(\d+)/);
+                return match ? parseInt(match[1]) : 0;
+            })), 0);
+            renderSlide();
+            updateSlidesList();
+            updateSlideCounter();
+            alert('Презентация успешно загружена!');
+        } catch (error) {
+            alert('Ошибка при загрузке файла. Проверьте формат файла.');
+        }
+    };
+    reader.readAsText(file);
+}

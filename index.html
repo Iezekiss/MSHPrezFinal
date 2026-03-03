@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Создатель Презентаций для Детей</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Верхняя панель инструментов -->
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <h1 class="logo">🎨 Презентация</h1>
+            </div>
+            <div class="toolbar-center">
+                <button class="btn btn-primary" id="addSlideBtn">+ Новый слайд</button>
+                <button class="btn btn-secondary" id="exportBtn">Экспорт</button>
+            </div>
+            <div class="toolbar-right">
+                <button class="btn btn-icon" id="loadBtn" title="Загрузить">📂</button>
+                <input type="file" id="loadFileInput" accept=".json" style="display: none;">
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Боковая панель с инструментами -->
+            <aside class="sidebar">
+                <details class="sidebar-accordion">
+                    <summary>📝 Текст</summary>
+                    <div class="sidebar-section">
+                        <button class="btn btn-block" id="addTextBtn">Добавить текст</button>
+                    </div>
+                </details>
+
+                <details class="sidebar-accordion">
+                    <summary>🖼️ Изображения</summary>
+                    <div class="sidebar-section">
+                        <div class="input-group">
+                            <input type="text" id="imageUrlInput" placeholder="URL изображения" class="input">
+                            <button class="btn btn-block" id="addImageBtn">Добавить</button>
+                        </div>
+                        <button class="btn btn-block" id="uploadImageBtn">Загрузить файл</button>
+                        <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                    </div>
+                </details>
+
+                <details class="sidebar-accordion">
+                    <summary>🎨 Стиль</summary>
+                    <div class="sidebar-section">
+                        <div class="color-picker-group">
+                            <label>Фон слайда:</label>
+                            <input type="color" id="slideBgColorPicker" value="#ffffff" class="color-picker">
+                            <input type="text" id="slideBgHexInput" value="#ffffff" class="input" placeholder="#RRGGBB">
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Цвет текста:</label>
+                            <input type="color" id="textColorPicker" value="#000000" class="color-picker">
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Размер шрифта:</label>
+                            <input type="range" id="fontSizeSlider" min="12" max="72" value="24" class="slider">
+                            <span id="fontSizeValue">24px</span>
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Шрифт:</label>
+                            <select id="fontFamilySelect" class="select">
+                                <option value="Segoe UI">Segoe UI</option>
+                                <option value="Comfortaa">Comfortaa</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Georgia">Georgia</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                                <option value="Courier New">Courier New</option>
+                                <option value="Comic Sans MS">Comic Sans MS</option>
+                            </select>
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Выравнивание:</label>
+                            <div class="btn-group" id="textAlignGroup">
+                                <button class="btn btn-toggle" data-align="left">⇤</button>
+                                <button class="btn btn-toggle" data-align="center">↔</button>
+                                <button class="btn btn-toggle" data-align="right">⇥</button>
+                                <button class="btn btn-toggle" data-align="justify">☰</button>
+                            </div>
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Начертание:</label>
+                            <div class="btn-group" id="textStyleGroup">
+                                <button class="btn btn-toggle" id="boldToggle"><strong>B</strong></button>
+                                <button class="btn btn-toggle" id="italicToggle"><em>I</em></button>
+                                <button class="btn btn-toggle" id="underlineToggle"><u>U</u></button>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="sidebar-accordion">
+                    <summary>✨ Анимация</summary>
+                    <div class="sidebar-section">
+                        <select id="animationSelect" class="select">
+                            <option value="">Выберите анимацию</option>
+                            <option value="fadeIn">Появление</option>
+                            <option value="slideIn">Въезд слева</option>
+                            <option value="slideInRight">Въезд справа</option>
+                            <option value="bounce">Прыжок</option>
+                            <option value="rotate">Вращение</option>
+                            <option value="pulse">Пульсация</option>
+                        </select>
+                        <button class="btn btn-block" id="applyAnimationBtn">Применить</button>
+                    </div>
+                </details>
+
+                <details class="sidebar-accordion">
+                    <summary>🔷 Фигуры</summary>
+                    <div class="sidebar-section">
+                        <div class="shapes-grid">
+                            <button class="btn btn-shape" id="addRectangleBtn" title="Прямоугольник">▭</button>
+                            <button class="btn btn-shape" id="addCircleBtn" title="Круг">○</button>
+                            <button class="btn btn-shape" id="addTriangleBtn" title="Треугольник">△</button>
+                            <button class="btn btn-shape" id="addLineBtn" title="Линия">─</button>
+                        </div>
+                        <div class="color-picker-group" style="margin-top: 15px;">
+                            <label>Цвет заливки:</label>
+                            <input type="color" id="shapeFillColorPicker" value="#667eea" class="color-picker">
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Цвет обводки:</label>
+                            <input type="color" id="shapeStrokeColorPicker" value="#000000" class="color-picker">
+                        </div>
+                    </div>
+                </details>
+
+                <details class="sidebar-accordion">
+                    <summary>📊 Слайды</summary>
+                    <div class="sidebar-section">
+                        <div id="slidesList" class="slides-list"></div>
+                    </div>
+                </details>
+            </aside>
+
+            <!-- Область редактирования -->
+            <main class="editor-area">
+                <div class="slide-container" id="slideContainer">
+                    <div class="slide" id="currentSlide" data-slide-id="1">
+                        <div class="slide-content" id="slideContent">
+                            <!-- Элементы слайда будут добавляться сюда -->
+                        </div>
+                    </div>
+                </div>
+                <div class="slide-controls">
+                    <button class="btn btn-icon" id="prevSlideBtn">◀</button>
+                    <span id="slideCounter">Слайд 1 из 1</span>
+                    <button class="btn btn-icon" id="nextSlideBtn">▶</button>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Модальное окно экспорта -->
+    <div id="exportModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Экспорт презентации</h2>
+            <div class="export-options">
+                <button class="btn btn-primary" id="exportPDFBtn">Экспорт в PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
