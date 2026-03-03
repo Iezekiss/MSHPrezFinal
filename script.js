@@ -3,6 +3,7 @@ let slides = [];
 let currentSlideIndex = 0;
 let selectedElement = null;
 let elementIdCounter = 0;
+let activeEditable = null;
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
@@ -127,6 +128,7 @@ function renderSlide() {
     const slideContent = document.getElementById('slideContent');
     slideContent.innerHTML = '';
     selectedElement = null;
+    activeEditable = null;
 
     const currentSlide = slides[currentSlideIndex];
     if (!currentSlide) return;
@@ -257,12 +259,14 @@ function addTextElement() {
         textAlign: 'left',
         color: '#000000',
         animation: '',
-        collapsed: false
+        collapsed: false,
+        rotation: 0
     };
 
     slides[currentSlideIndex].elements.push(element);
     renderSlide();
     selectElement(elementId);
+    requestAnimationFrame(() => startInlineTextEditing(elementId));
 }
 
 function addImageFromUrl() {
@@ -331,10 +335,13 @@ function createElementDiv(element) {
     const div = document.createElement('div');
     div.className = 'slide-element';
     div.id = element.id;
+    div.dataset.elementType = element.type;
     div.style.left = element.x + 'px';
     div.style.top = element.y + 'px';
     div.style.width = element.width + 'px';
     div.style.height = element.height + 'px';
+    div.style.transform = `rotate(${element.rotation || 0}deg)`;
+    div.style.transformOrigin = 'center center';
 
     if (element.animation) {
         div.classList.add(`animate-${element.animation}`);
@@ -354,30 +361,10 @@ function createElementDiv(element) {
         });
         div.appendChild(collapseBtn);
         
-        const textarea = document.createElement('textarea');
-        textarea.className = 'slide-text';
-        textarea.value = element.content;
-        textarea.style.fontSize = element.fontSize + 'px';
-        textarea.style.color = element.color;
-        textarea.style.fontFamily = element.fontFamily || 'Segoe UI';
-        textarea.style.fontWeight = element.fontWeight || 'normal';
-        textarea.style.fontStyle = element.fontStyle || 'normal';
-        textarea.style.textDecoration = element.textDecoration || 'none';
-        textarea.style.textAlign = element.textAlign || 'left';
-        textarea.style.width = '100%';
-        textarea.style.height = element.collapsed ? '30px' : '100%';
-        textarea.style.overflow = element.collapsed ? 'hidden' : 'auto';
-        textarea.style.resize = 'both';
-        textarea.addEventListener('input', (e) => {
-            element.content = e.target.value;
-        });
-        
-        // При клике на textarea - редактируем, не перетаскиваем
-        textarea.addEventListener('mousedown', (e) => {
-            e.stopPropagation(); // Останавливаем всплытие события
-        });
-        
-        div.appendChild(textarea);
+        const textBox = createEditableTextNode(element, 'slide-text');
+        textBox.style.height = element.collapsed ? '30px' : '100%';
+        textBox.style.overflow = element.collapsed ? 'hidden' : 'auto';
+        div.appendChild(textBox);
     } else if (element.type === 'image') {
         const img = document.createElement('img');
         img.className = 'slide-image';
@@ -387,10 +374,6 @@ function createElementDiv(element) {
         img.draggable = false;
         div.appendChild(img);
         
-        // Элементы управления размером для изображений
-        if (div.classList.contains('selected')) {
-            addResizeHandles(div, element);
-        }
     } else if (element.type === 'shape') {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', '100%');
@@ -445,11 +428,13 @@ function createElementDiv(element) {
             svg.appendChild(shapeElement);
             div.appendChild(svg);
         }
-        
-        // Элементы управления размером для фигур
-        if (div.classList.contains('selected')) {
-            addResizeHandles(div, element);
-        }
+
+        const shapeText = createEditableTextNode(element, 'shape-text');
+        shapeText.style.display = element.content ? 'flex' : 'none';
+        shapeText.style.alignItems = 'center';
+        shapeText.style.justifyContent = 'center';
+        shapeText.style.pointerEvents = 'auto';
+        div.appendChild(shapeText);
     }
 
     // Кнопка удаления
@@ -467,30 +452,69 @@ function createElementDiv(element) {
 
     // Выбор элемента
     div.addEventListener('click', (e) => {
-        // Разрешаем выбор при клике на SVG элементы (фигуры)
-        const isSVGElement = e.target.tagName === 'svg' || 
-                             e.target.tagName === 'rect' || 
-                             e.target.tagName === 'circle' || 
-                             e.target.tagName === 'polygon' || 
-                             e.target.tagName === 'line' ||
-                             e.target.classList.contains('shape-element');
-        
         if (e.target !== deleteBtn && 
             !e.target.classList.contains('resize-handle') && 
-            !e.target.classList.contains('collapse-btn')) {
+            !e.target.classList.contains('collapse-btn') &&
+            !e.target.classList.contains('rotation-handle')) {
             selectElement(element.id);
         }
     });
 
+    if (element.type === 'text' || element.type === 'shape') {
+        div.addEventListener('dblclick', (e) => {
+            if (e.target === deleteBtn ||
+                e.target.classList.contains('resize-handle') ||
+                e.target.classList.contains('collapse-btn') ||
+                e.target.classList.contains('rotation-handle')) {
+                return;
+            }
+            e.stopPropagation();
+            selectElement(element.id);
+            startInlineTextEditing(element.id);
+        });
+    }
+
     return div;
 }
 
-// Добавление элементов управления размером для изображений и фигур
+function createEditableTextNode(element, extraClass = '') {
+    const textBox = document.createElement('div');
+    textBox.className = `editable-text ${extraClass}`.trim();
+    textBox.textContent = element.content || '';
+    textBox.style.fontSize = (element.fontSize || 24) + 'px';
+    textBox.style.color = element.color || '#000000';
+    textBox.style.fontFamily = element.fontFamily || 'Segoe UI';
+    textBox.style.fontWeight = element.fontWeight || 'normal';
+    textBox.style.fontStyle = element.fontStyle || 'normal';
+    textBox.style.textDecoration = element.textDecoration || 'none';
+    textBox.style.textAlign = element.textAlign || 'left';
+
+    textBox.addEventListener('input', () => {
+        element.content = textBox.innerText.replace(/\r\n/g, '\n');
+        if (element.type === 'shape' && !textBox.isContentEditable) {
+            textBox.style.display = element.content ? 'flex' : 'none';
+        }
+    });
+
+    textBox.addEventListener('mousedown', (e) => {
+        if (textBox.isContentEditable) {
+            e.stopPropagation();
+        }
+    });
+
+    textBox.addEventListener('blur', () => {
+        finishInlineTextEditing(textBox, element);
+    });
+
+    return textBox;
+}
+
+// Добавление элементов управления размером
 function addResizeHandles(elementDiv, element) {
     // Удаляем старые handles если есть
     elementDiv.querySelectorAll('.resize-handle').forEach(h => h.remove());
     
-    if (element.type !== 'image' && element.type !== 'shape') return;
+    if (!['image', 'shape', 'text'].includes(element.type)) return;
     
     const handles = [
         { position: 'nw', cursor: 'nw-resize' },
@@ -566,41 +590,42 @@ function makeResizable(handle, elementDiv, element, position) {
         let newY = startTop;
         
         // Минимальный размер
-        const minSize = 50;
+        const minWidth = element.type === 'text' ? 120 : 50;
+        const minHeight = element.type === 'text' ? 50 : 50;
         
         switch(position) {
             case 'se':
-                newWidth = Math.max(minSize, startWidth + deltaX);
-                newHeight = Math.max(minSize, startHeight + deltaY);
+                newWidth = Math.max(minWidth, startWidth + deltaX);
+                newHeight = Math.max(minHeight, startHeight + deltaY);
                 break;
             case 'sw':
-                newWidth = Math.max(minSize, startWidth - deltaX);
-                newHeight = Math.max(minSize, startHeight + deltaY);
+                newWidth = Math.max(minWidth, startWidth - deltaX);
+                newHeight = Math.max(minHeight, startHeight + deltaY);
                 newX = startLeft + (startWidth - newWidth);
                 break;
             case 'ne':
-                newWidth = Math.max(minSize, startWidth + deltaX);
-                newHeight = Math.max(minSize, startHeight - deltaY);
+                newWidth = Math.max(minWidth, startWidth + deltaX);
+                newHeight = Math.max(minHeight, startHeight - deltaY);
                 newY = startTop + (startHeight - newHeight);
                 break;
             case 'nw':
-                newWidth = Math.max(minSize, startWidth - deltaX);
-                newHeight = Math.max(minSize, startHeight - deltaY);
+                newWidth = Math.max(minWidth, startWidth - deltaX);
+                newHeight = Math.max(minHeight, startHeight - deltaY);
                 newX = startLeft + (startWidth - newWidth);
                 newY = startTop + (startHeight - newHeight);
                 break;
             case 'e':
-                newWidth = Math.max(minSize, startWidth + deltaX);
+                newWidth = Math.max(minWidth, startWidth + deltaX);
                 break;
             case 'w':
-                newWidth = Math.max(minSize, startWidth - deltaX);
+                newWidth = Math.max(minWidth, startWidth - deltaX);
                 newX = startLeft + (startWidth - newWidth);
                 break;
             case 's':
-                newHeight = Math.max(minSize, startHeight + deltaY);
+                newHeight = Math.max(minHeight, startHeight + deltaY);
                 break;
             case 'n':
-                newHeight = Math.max(minSize, startHeight - deltaY);
+                newHeight = Math.max(minHeight, startHeight - deltaY);
                 newY = startTop + (startHeight - newHeight);
                 break;
         }
@@ -623,13 +648,63 @@ function makeResizable(handle, elementDiv, element, position) {
     }
 }
 
+function addRotationHandle(elementDiv, element) {
+    elementDiv.querySelectorAll('.rotation-handle').forEach(h => h.remove());
+
+    if (element.type !== 'shape') return;
+
+    const handle = document.createElement('button');
+    handle.className = 'rotation-handle';
+    handle.type = 'button';
+    handle.textContent = '↻';
+    makeRotatable(handle, elementDiv, element);
+    elementDiv.appendChild(handle);
+}
+
+function makeRotatable(handle, elementDiv, element) {
+    let isRotating = false;
+
+    handle.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        isRotating = true;
+        document.addEventListener('mousemove', onRotateMove);
+        document.addEventListener('mouseup', onRotateUp);
+        e.preventDefault();
+    });
+
+    function onRotateMove(e) {
+        if (!isRotating) return;
+
+        const rect = elementDiv.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const angle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI);
+
+        element.rotation = angle + 90;
+        elementDiv.style.transform = `rotate(${element.rotation}deg)`;
+    }
+
+    function onRotateUp() {
+        isRotating = false;
+        document.removeEventListener('mousemove', onRotateMove);
+        document.removeEventListener('mouseup', onRotateUp);
+    }
+}
+
 function makeDraggable(elementDiv, element) {
     let isDragging = false;
     let startX, startY, startLeft, startTop;
 
     elementDiv.addEventListener('mousedown', (e) => {
-        // Если клик на textarea, не начинаем перетаскивание (событие уже остановлено в textarea)
-        if (e.target.tagName === 'TEXTAREA') {
+        if (e.target.classList.contains('resize-handle') ||
+            e.target.classList.contains('rotation-handle') ||
+            e.target.classList.contains('delete-btn') ||
+            e.target.classList.contains('collapse-btn')) {
+            return;
+        }
+
+        const editable = elementDiv.querySelector('.editable-text');
+        if (editable && editable.isContentEditable) {
             return;
         }
         
@@ -666,6 +741,7 @@ function selectElement(elementId) {
     document.querySelectorAll('.slide-element').forEach(el => {
         el.classList.remove('selected');
         el.querySelectorAll('.resize-handle').forEach(h => h.remove());
+        el.querySelectorAll('.rotation-handle').forEach(h => h.remove());
     });
 
     // Выделяем новый элемент
@@ -674,9 +750,12 @@ function selectElement(elementId) {
         element.classList.add('selected');
         selectedElement = slides[currentSlideIndex].elements.find(el => el.id === elementId);
         
-        // Добавляем элементы управления размером для изображений и фигур
-        if (selectedElement && (selectedElement.type === 'image' || selectedElement.type === 'shape')) {
+        if (selectedElement && ['image', 'shape', 'text'].includes(selectedElement.type)) {
             addResizeHandles(element, selectedElement);
+        }
+
+        if (selectedElement && selectedElement.type === 'shape') {
+            addRotationHandle(element, selectedElement);
         }
         
         // Обновляем цветовые пикеры для фигур
@@ -685,7 +764,7 @@ function selectElement(elementId) {
             document.getElementById('shapeStrokeColorPicker').value = selectedElement.strokeColor || '#000000';
         }
 
-        if (selectedElement && selectedElement.type === 'text') {
+        if (supportsTextStyling(selectedElement)) {
             syncTextControls(selectedElement);
         }
     }
@@ -771,26 +850,26 @@ function applyAnimation() {
 
 // Стили
 function updateTextColor() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     const color = document.getElementById('textColorPicker').value;
     selectedElement.color = color;
     
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.color = color;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.color = color;
     }
 }
 
 function updateFontSize() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     const fontSize = document.getElementById('fontSizeSlider').value;
     selectedElement.fontSize = parseInt(fontSize);
     
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.fontSize = fontSize + 'px';
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.fontSize = fontSize + 'px';
     }
     
     document.getElementById('fontSizeValue').textContent = fontSize + 'px';
@@ -834,24 +913,24 @@ function normalizeHex(value) {
 }
 
 function updateFontFamily() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     const fontFamily = document.getElementById('fontFamilySelect').value;
     selectedElement.fontFamily = fontFamily;
     
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.fontFamily = fontFamily;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.fontFamily = fontFamily;
     }
 }
 
 function updateTextAlign(align) {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     selectedElement.textAlign = align;
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.textAlign = align;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.textAlign = align;
     }
     
     document.querySelectorAll('#textAlignGroup .btn-toggle').forEach(btn => {
@@ -860,34 +939,34 @@ function updateTextAlign(align) {
 }
 
 function toggleBold() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     selectedElement.fontWeight = selectedElement.fontWeight === 'bold' ? 'normal' : 'bold';
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.fontWeight = selectedElement.fontWeight;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.fontWeight = selectedElement.fontWeight;
     }
     document.getElementById('boldToggle').classList.toggle('active', selectedElement.fontWeight === 'bold');
 }
 
 function toggleItalic() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     selectedElement.fontStyle = selectedElement.fontStyle === 'italic' ? 'normal' : 'italic';
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.fontStyle = selectedElement.fontStyle;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.fontStyle = selectedElement.fontStyle;
     }
     document.getElementById('italicToggle').classList.toggle('active', selectedElement.fontStyle === 'italic');
 }
 
 function toggleUnderline() {
-    if (!selectedElement || selectedElement.type !== 'text') return;
+    if (!selectedElement || !supportsTextStyling(selectedElement)) return;
     
     selectedElement.textDecoration = selectedElement.textDecoration === 'underline' ? 'none' : 'underline';
-    const textarea = document.querySelector(`#${selectedElement.id} .slide-text`);
-    if (textarea) {
-        textarea.style.textDecoration = selectedElement.textDecoration;
+    const textBox = document.querySelector(`#${selectedElement.id} .editable-text`);
+    if (textBox) {
+        textBox.style.textDecoration = selectedElement.textDecoration;
     }
     document.getElementById('underlineToggle').classList.toggle('active', selectedElement.textDecoration === 'underline');
 }
@@ -908,6 +987,58 @@ function syncTextControls(element) {
     document.getElementById('boldToggle').classList.toggle('active', (element.fontWeight || 'normal') === 'bold');
     document.getElementById('italicToggle').classList.toggle('active', (element.fontStyle || 'normal') === 'italic');
     document.getElementById('underlineToggle').classList.toggle('active', (element.textDecoration || 'none') === 'underline');
+}
+
+function supportsTextStyling(element) {
+    return element && (element.type === 'text' || element.type === 'shape');
+}
+
+function startInlineTextEditing(elementId) {
+    const elementDiv = document.getElementById(elementId);
+    const element = slides[currentSlideIndex]?.elements.find(el => el.id === elementId);
+    const textBox = elementDiv?.querySelector('.editable-text');
+
+    if (!elementDiv || !element || !textBox) return;
+
+    if (activeEditable && activeEditable !== textBox) {
+        const previousElement = slides[currentSlideIndex]?.elements.find(el => el.id === activeEditable.closest('.slide-element')?.id);
+        if (previousElement) {
+            finishInlineTextEditing(activeEditable, previousElement);
+        }
+    }
+
+    activeEditable = textBox;
+    textBox.contentEditable = 'true';
+    textBox.classList.add('is-editing');
+    if (element.type === 'shape') {
+        textBox.style.display = 'flex';
+    }
+    placeCaretAtEnd(textBox);
+    textBox.focus();
+}
+
+function finishInlineTextEditing(textBox, element) {
+    if (!textBox) return;
+
+    element.content = textBox.innerText.replace(/\r\n/g, '\n').trimEnd();
+    textBox.textContent = element.content;
+    textBox.contentEditable = 'false';
+    textBox.classList.remove('is-editing');
+    if (element.type === 'shape') {
+        textBox.style.display = element.content ? 'flex' : 'none';
+    }
+    if (activeEditable === textBox) {
+        activeEditable = null;
+    }
+}
+
+function placeCaretAtEnd(node) {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
 }
 
 // Экспорт
@@ -1014,7 +1145,16 @@ function addShape(shapeType) {
         fillColor: fillColor,
         strokeColor: strokeColor,
         strokeWidth: 2,
-        animation: ''
+        animation: '',
+        rotation: 0,
+        content: '',
+        fontSize: 24,
+        fontFamily: 'Segoe UI',
+        fontWeight: '600',
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        textAlign: 'center',
+        color: '#ffffff'
     };
 
     slides[currentSlideIndex].elements.push(element);
@@ -1056,6 +1196,10 @@ function loadPresentation(file) {
     reader.onload = (e) => {
         try {
             slides = JSON.parse(e.target.result);
+            slides.forEach(slide => {
+                slide.background = slide.background || '#ffffff';
+                slide.elements = (slide.elements || []).map(normalizeLoadedElement);
+            });
             currentSlideIndex = 0;
             elementIdCounter = Math.max(...slides.flatMap(s => s.elements.map(el => {
                 const match = el.id.match(/element-(\d+)/);
@@ -1070,4 +1214,26 @@ function loadPresentation(file) {
         }
     };
     reader.readAsText(file);
+}
+
+function normalizeLoadedElement(element) {
+    const normalized = { ...element };
+    normalized.rotation = normalized.rotation || 0;
+
+    if (normalized.type === 'shape') {
+        normalized.content = normalized.content || '';
+        normalized.fontSize = normalized.fontSize || 24;
+        normalized.fontFamily = normalized.fontFamily || 'Segoe UI';
+        normalized.fontWeight = normalized.fontWeight || '600';
+        normalized.fontStyle = normalized.fontStyle || 'normal';
+        normalized.textDecoration = normalized.textDecoration || 'none';
+        normalized.textAlign = normalized.textAlign || 'center';
+        normalized.color = normalized.color || '#ffffff';
+    }
+
+    if (normalized.type === 'text') {
+        normalized.content = normalized.content || '';
+    }
+
+    return normalized;
 }

@@ -268,22 +268,50 @@ body {
     outline-offset: 4px;
 }
 
-.slide-text {
-    min-width: 100px;
-    min-height: 30px;
+.editable-text {
+    width: 100%;
+    height: 100%;
+    min-width: 100%;
+    min-height: 100%;
     padding: 10px;
     border: none;
     background: transparent;
-    font-size: 24px;
-    resize: both;
-    overflow: auto;
-    font-family: inherit;
     box-sizing: border-box;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow: auto;
+    outline: none;
 }
 
-.slide-text:focus {
+.editable-text.is-editing {
+    cursor: text;
+    user-select: text;
+}
+
+.slide-text {
+    min-width: 100px;
+    min-height: 30px;
+    align-items: flex-start;
+    justify-content: flex-start;
+}
+
+.slide-text.is-editing {
     outline: 2px solid #667eea;
     border-radius: 4px;
+}
+
+.shape-text {
+    position: absolute;
+    inset: 0;
+    text-align: center;
+    padding: 12px;
+    z-index: 2;
+}
+
+.shape-text.is-editing {
+    background: rgba(255, 255, 255, 0.18);
+    outline: 2px dashed rgba(255, 255, 255, 0.7);
+    border-radius: 8px;
 }
 
 .slide-image {
@@ -345,6 +373,26 @@ body {
     cursor: pointer;
     z-index: 1000;
     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.rotation-handle {
+    position: absolute;
+    top: -38px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 50%;
+    background: #667eea;
+    color: white;
+    cursor: grab;
+    z-index: 1001;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+}
+
+.rotation-handle:active {
+    cursor: grabbing;
 }
 
 /* Список слайдов */
