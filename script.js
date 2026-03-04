@@ -80,6 +80,7 @@ function setupEventListeners() {
     // Добавление фигур
     document.getElementById('addRectangleBtn').addEventListener('click', () => addShape('rectangle'));
     document.getElementById('addCircleBtn').addEventListener('click', () => addShape('circle'));
+    document.getElementById('addOvalBtn').addEventListener('click', () => addShape('oval'));
     document.getElementById('addTriangleBtn').addEventListener('click', () => addShape('triangle'));
     document.getElementById('addLineBtn').addEventListener('click', () => addShape('line'));
     
@@ -405,6 +406,16 @@ function createElementDiv(element) {
                 shapeElement.setAttribute('stroke', strokeColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
+            case 'oval':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+                shapeElement.setAttribute('cx', '50%');
+                shapeElement.setAttribute('cy', '50%');
+                shapeElement.setAttribute('rx', '45%');
+                shapeElement.setAttribute('ry', '35%');
+                shapeElement.setAttribute('fill', fillColor);
+                shapeElement.setAttribute('stroke', strokeColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
             case 'triangle':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
                 shapeElement.setAttribute('points', '50%,10% 90%,90% 10%,90%');
@@ -651,7 +662,7 @@ function makeResizable(handle, elementDiv, element, position) {
 function addRotationHandle(elementDiv, element) {
     elementDiv.querySelectorAll('.rotation-handle').forEach(h => h.remove());
 
-    if (element.type !== 'shape') return;
+    if (element.type !== 'shape' && element.type !== 'text') return;
 
     const handle = document.createElement('button');
     handle.className = 'rotation-handle';
@@ -754,7 +765,7 @@ function selectElement(elementId) {
             addResizeHandles(element, selectedElement);
         }
 
-        if (selectedElement && selectedElement.type === 'shape') {
+        if (selectedElement && (selectedElement.type === 'shape' || selectedElement.type === 'text')) {
             addRotationHandle(element, selectedElement);
         }
         
