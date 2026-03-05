@@ -19,7 +19,7 @@ body {
 
 /* Верхняя панель */
 .toolbar {
-    background: white;
+    background: #ffffff;
     padding: 15px 20px;
     display: flex;
     justify-content: space-between;
@@ -30,7 +30,9 @@ body {
 
 .logo {
     font-size: 24px;
-    color: #667eea;
+    font-family: 'Nunito', 'Segoe UI', sans-serif;
+    font-weight: 800;
+    color: #2f66ff;
     margin: 0;
 }
 
@@ -393,6 +395,55 @@ body {
 
 .rotation-handle:active {
     cursor: grabbing;
+}
+
+.crop-overlay {
+    position: absolute;
+    border: 2px solid #ffffff;
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+    cursor: move;
+    z-index: 1002;
+}
+
+.crop-frame {
+    width: 100%;
+    height: 100%;
+    border: 1px dashed rgba(255, 255, 255, 0.9);
+}
+
+.crop-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #ffffff;
+    border: 2px solid #667eea;
+    border-radius: 50%;
+    z-index: 1003;
+}
+
+.crop-handle-nw {
+    top: -7px;
+    left: -7px;
+    cursor: nw-resize;
+}
+
+.crop-handle-ne {
+    top: -7px;
+    right: -7px;
+    cursor: ne-resize;
+}
+
+.crop-handle-sw {
+    bottom: -7px;
+    left: -7px;
+    cursor: sw-resize;
+}
+
+.crop-handle-se {
+    bottom: -7px;
+    right: -7px;
+    cursor: se-resize;
 }
 
 /* Список слайдов */

@@ -6,7 +6,7 @@
     <title>Создание Презентаций для Детей</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@300;400;600;700&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
         <!-- Верхняя панель инструментов -->
         <header class="toolbar">
             <div class="toolbar-left">
-                <h1 class="logo">🎨 Презентация</h1>
+                <h1 class="logo">🎨 МШПрезентации</h1>
             </div>
             <div class="toolbar-center">
                 <button class="btn btn-primary" id="addSlideBtn">+ Новый слайд</button>
@@ -44,6 +44,9 @@
                             <button class="btn btn-block" id="addImageBtn">Добавить</button>
                         </div>
                         <button class="btn btn-block" id="uploadImageBtn">Загрузить файл</button>
+                        <button class="btn btn-block" id="mirrorImageBtn">Отзеркалить</button>
+                        <button class="btn btn-block" id="startCropBtn">Обрезать фото</button>
+                        <button class="btn btn-block" id="resetCropBtn">Сбросить обрезку</button>
                         <input type="file" id="fileInput" accept="image/*" style="display: none;">
                     </div>
                 </details>
@@ -121,6 +124,7 @@
                             <button class="btn btn-shape" id="addCircleBtn" title="Круг">○</button>
                             <button class="btn btn-shape" id="addOvalBtn" title="Овал">⬭</button>
                             <button class="btn btn-shape" id="addTriangleBtn" title="Треугольник">△</button>
+                            <button class="btn btn-shape" id="addStarBtn" title="Звезда">★</button>
                             <button class="btn btn-shape" id="addLineBtn" title="Линия">─</button>
                         </div>
                         <div class="color-picker-group" style="margin-top: 15px;">
@@ -130,6 +134,11 @@
                         <div class="color-picker-group">
                             <label>Цвет обводки:</label>
                             <input type="color" id="shapeStrokeColorPicker" value="#000000" class="color-picker">
+                        </div>
+                        <div class="color-picker-group">
+                            <label>Толщина обводки:</label>
+                            <input type="range" id="shapeStrokeWidthSlider" min="1" max="20" value="2" class="slider">
+                            <span id="shapeStrokeWidthValue">2px</span>
                         </div>
                     </div>
                 </details>
@@ -167,6 +176,7 @@
             <h2>Экспорт презентации</h2>
             <div class="export-options">
                 <button class="btn btn-primary" id="exportPDFBtn">Экспорт в PDF</button>
+                <button class="btn btn-secondary" id="exportGIFBtn">Текущий слайд в GIF</button>
             </div>
         </div>
     </div>
@@ -174,6 +184,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

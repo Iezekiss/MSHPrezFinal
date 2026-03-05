@@ -4,6 +4,7 @@ let currentSlideIndex = 0;
 let selectedElement = null;
 let elementIdCounter = 0;
 let activeEditable = null;
+let activeCropSession = null;
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
@@ -31,6 +32,9 @@ function setupEventListeners() {
         document.getElementById('fileInput').click();
     });
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+    document.getElementById('mirrorImageBtn').addEventListener('click', toggleImageMirror);
+    document.getElementById('startCropBtn').addEventListener('click', toggleImageCropMode);
+    document.getElementById('resetCropBtn').addEventListener('click', resetImageCrop);
 
     // Анимация
     document.getElementById('applyAnimationBtn').addEventListener('click', applyAnimation);
@@ -53,6 +57,7 @@ function setupEventListeners() {
         document.getElementById('exportModal').style.display = 'block';
     });
     document.getElementById('exportPDFBtn').addEventListener('click', exportToPDF);
+    document.getElementById('exportGIFBtn').addEventListener('click', exportCurrentSlideToGIF);
 
     // Закрытие модального окна
     document.querySelector('.close').addEventListener('click', () => {
@@ -82,11 +87,13 @@ function setupEventListeners() {
     document.getElementById('addCircleBtn').addEventListener('click', () => addShape('circle'));
     document.getElementById('addOvalBtn').addEventListener('click', () => addShape('oval'));
     document.getElementById('addTriangleBtn').addEventListener('click', () => addShape('triangle'));
+    document.getElementById('addStarBtn').addEventListener('click', () => addShape('star'));
     document.getElementById('addLineBtn').addEventListener('click', () => addShape('line'));
     
     // Цвета фигур
     document.getElementById('shapeFillColorPicker').addEventListener('input', updateShapeFillColor);
     document.getElementById('shapeStrokeColorPicker').addEventListener('input', updateShapeStrokeColor);
+    document.getElementById('shapeStrokeWidthSlider').addEventListener('input', updateShapeStrokeWidth);
 
     // Аккордеон: открываем только одну секцию
     document.querySelectorAll('.sidebar-accordion').forEach(details => {
@@ -100,6 +107,8 @@ function setupEventListeners() {
             }
         });
     });
+
+    syncShapeControls();
 }
 
 // Управление слайдами
@@ -141,6 +150,9 @@ function renderSlide() {
         const elementDiv = createElementDiv(element);
         slideContent.appendChild(elementDiv);
     });
+
+    syncImageCropButtons();
+    syncShapeControls();
 
     // Обновляем активный слайд в списке
     updateSlidesList();
@@ -289,7 +301,9 @@ function addImageFromUrl() {
             y: 200,
             width: img.width > 400 ? 400 : img.width,
             height: img.height > 300 ? 300 : img.height,
-            animation: ''
+            animation: '',
+            crop: null,
+            flipped: false
         };
 
         slides[currentSlideIndex].elements.push(element);
@@ -304,8 +318,12 @@ function addImageFromUrl() {
 }
 
 function handleFileUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+    const fileInput = event.target;
+    const file = fileInput.files[0];
+    if (!file) {
+        fileInput.value = '';
+        return;
+    }
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -320,14 +338,20 @@ function handleFileUpload(event) {
                 y: 200,
                 width: img.width > 400 ? 400 : img.width,
                 height: img.height > 300 ? 300 : img.height,
-                animation: ''
+                animation: '',
+                crop: null,
+                flipped: false
             };
 
             slides[currentSlideIndex].elements.push(element);
             renderSlide();
             selectElement(elementId);
+            fileInput.value = '';
         };
         img.src = e.target.result;
+    };
+    reader.onerror = () => {
+        fileInput.value = '';
     };
     reader.readAsDataURL(file);
 }
@@ -367,18 +391,31 @@ function createElementDiv(element) {
         textBox.style.overflow = element.collapsed ? 'hidden' : 'auto';
         div.appendChild(textBox);
     } else if (element.type === 'image') {
+        const imageFrame = document.createElement('div');
+        imageFrame.className = 'slide-image-frame';
+        imageFrame.style.position = 'absolute';
+        imageFrame.style.inset = '0';
+        imageFrame.style.overflow = 'hidden';
+        imageFrame.style.borderRadius = '8px';
+
         const img = document.createElement('img');
         img.className = 'slide-image';
         img.src = element.src;
-        img.style.width = '100%';
-        img.style.height = '100%';
+        img.style.borderRadius = '0';
+        applyImageCropStyles(img, element);
         img.draggable = false;
-        div.appendChild(img);
-        
+        imageFrame.appendChild(img);
+        div.appendChild(imageFrame);
+
+        if (activeCropSession && activeCropSession.elementId === element.id) {
+            addCropOverlay(div, element);
+        }
     } else if (element.type === 'shape') {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
+        svg.setAttribute('viewBox', '0 0 100 100');
+        svg.setAttribute('preserveAspectRatio', 'none');
         svg.style.position = 'absolute';
         svg.style.top = '0';
         svg.style.left = '0';
@@ -391,51 +428,60 @@ function createElementDiv(element) {
         switch(element.shapeType) {
             case 'rectangle':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                shapeElement.setAttribute('width', '100%');
-                shapeElement.setAttribute('height', '100%');
+                shapeElement.setAttribute('x', '0');
+                shapeElement.setAttribute('y', '0');
+                shapeElement.setAttribute('width', '100');
+                shapeElement.setAttribute('height', '100');
                 shapeElement.setAttribute('fill', fillColor);
                 shapeElement.setAttribute('stroke', strokeColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
             case 'circle':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                shapeElement.setAttribute('cx', '50%');
-                shapeElement.setAttribute('cy', '50%');
-                shapeElement.setAttribute('r', '45%');
+                shapeElement.setAttribute('cx', '50');
+                shapeElement.setAttribute('cy', '50');
+                shapeElement.setAttribute('r', '45');
                 shapeElement.setAttribute('fill', fillColor);
                 shapeElement.setAttribute('stroke', strokeColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
             case 'oval':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-                shapeElement.setAttribute('cx', '50%');
-                shapeElement.setAttribute('cy', '50%');
-                shapeElement.setAttribute('rx', '45%');
-                shapeElement.setAttribute('ry', '35%');
+                shapeElement.setAttribute('cx', '50');
+                shapeElement.setAttribute('cy', '50');
+                shapeElement.setAttribute('rx', '45');
+                shapeElement.setAttribute('ry', '35');
                 shapeElement.setAttribute('fill', fillColor);
                 shapeElement.setAttribute('stroke', strokeColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
             case 'triangle':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                shapeElement.setAttribute('points', '50%,10% 90%,90% 10%,90%');
+                shapeElement.setAttribute('points', '50,8 92,92 8,92');
+                shapeElement.setAttribute('fill', fillColor);
+                shapeElement.setAttribute('stroke', strokeColor);
+                shapeElement.setAttribute('stroke-width', strokeWidth);
+                break;
+            case 'star':
+                shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                shapeElement.setAttribute('points', '50,6 61,37 95,37 67,57 78,92 50,72 22,92 33,57 5,37 39,37');
                 shapeElement.setAttribute('fill', fillColor);
                 shapeElement.setAttribute('stroke', strokeColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
             case 'line':
                 shapeElement = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                shapeElement.setAttribute('x1', '10%');
-                shapeElement.setAttribute('y1', '50%');
-                shapeElement.setAttribute('x2', '90%');
-                shapeElement.setAttribute('y2', '50%');
+                shapeElement.setAttribute('x1', '10');
+                shapeElement.setAttribute('y1', '50');
+                shapeElement.setAttribute('x2', '90');
+                shapeElement.setAttribute('y2', '50');
                 shapeElement.setAttribute('stroke', fillColor);
                 shapeElement.setAttribute('stroke-width', strokeWidth);
                 break;
         }
         
         if (shapeElement) {
-            shapeElement.className = 'shape-element';
+            shapeElement.setAttribute('class', 'shape-element');
             svg.appendChild(shapeElement);
             div.appendChild(svg);
         }
@@ -594,6 +640,7 @@ function makeResizable(handle, elementDiv, element, position) {
         
         const deltaX = e.clientX - startX;
         const deltaY = e.clientY - startY;
+        const isPerfectCircle = element.type === 'shape' && element.shapeType === 'circle';
         
         let newWidth = startWidth;
         let newHeight = startHeight;
@@ -604,41 +651,86 @@ function makeResizable(handle, elementDiv, element, position) {
         const minWidth = element.type === 'text' ? 120 : 50;
         const minHeight = element.type === 'text' ? 50 : 50;
         
-        switch(position) {
-            case 'se':
-                newWidth = Math.max(minWidth, startWidth + deltaX);
-                newHeight = Math.max(minHeight, startHeight + deltaY);
-                break;
-            case 'sw':
-                newWidth = Math.max(minWidth, startWidth - deltaX);
-                newHeight = Math.max(minHeight, startHeight + deltaY);
-                newX = startLeft + (startWidth - newWidth);
-                break;
-            case 'ne':
-                newWidth = Math.max(minWidth, startWidth + deltaX);
-                newHeight = Math.max(minHeight, startHeight - deltaY);
-                newY = startTop + (startHeight - newHeight);
-                break;
-            case 'nw':
-                newWidth = Math.max(minWidth, startWidth - deltaX);
-                newHeight = Math.max(minHeight, startHeight - deltaY);
-                newX = startLeft + (startWidth - newWidth);
-                newY = startTop + (startHeight - newHeight);
-                break;
-            case 'e':
-                newWidth = Math.max(minWidth, startWidth + deltaX);
-                break;
-            case 'w':
-                newWidth = Math.max(minWidth, startWidth - deltaX);
-                newX = startLeft + (startWidth - newWidth);
-                break;
-            case 's':
-                newHeight = Math.max(minHeight, startHeight + deltaY);
-                break;
-            case 'n':
-                newHeight = Math.max(minHeight, startHeight - deltaY);
-                newY = startTop + (startHeight - newHeight);
-                break;
+        if (isPerfectCircle) {
+            const startSize = Math.max(startWidth, startHeight);
+            let newSize = startSize;
+
+            switch(position) {
+                case 'se':
+                    newSize = Math.max(minWidth, startSize + Math.max(deltaX, deltaY));
+                    break;
+                case 'sw':
+                    newSize = Math.max(minWidth, startSize + Math.max(-deltaX, deltaY));
+                    newX = startLeft + (startWidth - newSize);
+                    break;
+                case 'ne':
+                    newSize = Math.max(minWidth, startSize + Math.max(deltaX, -deltaY));
+                    newY = startTop + (startHeight - newSize);
+                    break;
+                case 'nw':
+                    newSize = Math.max(minWidth, startSize + Math.max(-deltaX, -deltaY));
+                    newX = startLeft + (startWidth - newSize);
+                    newY = startTop + (startHeight - newSize);
+                    break;
+                case 'e':
+                    newSize = Math.max(minWidth, startSize + deltaX);
+                    newY = startTop + (startHeight - newSize) / 2;
+                    break;
+                case 'w':
+                    newSize = Math.max(minWidth, startSize - deltaX);
+                    newX = startLeft + (startWidth - newSize);
+                    newY = startTop + (startHeight - newSize) / 2;
+                    break;
+                case 's':
+                    newSize = Math.max(minWidth, startSize + deltaY);
+                    newX = startLeft + (startWidth - newSize) / 2;
+                    break;
+                case 'n':
+                    newSize = Math.max(minWidth, startSize - deltaY);
+                    newX = startLeft + (startWidth - newSize) / 2;
+                    newY = startTop + (startHeight - newSize);
+                    break;
+            }
+
+            newWidth = newSize;
+            newHeight = newSize;
+        } else {
+            switch(position) {
+                case 'se':
+                    newWidth = Math.max(minWidth, startWidth + deltaX);
+                    newHeight = Math.max(minHeight, startHeight + deltaY);
+                    break;
+                case 'sw':
+                    newWidth = Math.max(minWidth, startWidth - deltaX);
+                    newHeight = Math.max(minHeight, startHeight + deltaY);
+                    newX = startLeft + (startWidth - newWidth);
+                    break;
+                case 'ne':
+                    newWidth = Math.max(minWidth, startWidth + deltaX);
+                    newHeight = Math.max(minHeight, startHeight - deltaY);
+                    newY = startTop + (startHeight - newHeight);
+                    break;
+                case 'nw':
+                    newWidth = Math.max(minWidth, startWidth - deltaX);
+                    newHeight = Math.max(minHeight, startHeight - deltaY);
+                    newX = startLeft + (startWidth - newWidth);
+                    newY = startTop + (startHeight - newHeight);
+                    break;
+                case 'e':
+                    newWidth = Math.max(minWidth, startWidth + deltaX);
+                    break;
+                case 'w':
+                    newWidth = Math.max(minWidth, startWidth - deltaX);
+                    newX = startLeft + (startWidth - newWidth);
+                    break;
+                case 's':
+                    newHeight = Math.max(minHeight, startHeight + deltaY);
+                    break;
+                case 'n':
+                    newHeight = Math.max(minHeight, startHeight - deltaY);
+                    newY = startTop + (startHeight - newHeight);
+                    break;
+            }
         }
         
         element.width = newWidth;
@@ -662,7 +754,7 @@ function makeResizable(handle, elementDiv, element, position) {
 function addRotationHandle(elementDiv, element) {
     elementDiv.querySelectorAll('.rotation-handle').forEach(h => h.remove());
 
-    if (element.type !== 'shape' && element.type !== 'text') return;
+    if (!['shape', 'text', 'image'].includes(element.type)) return;
 
     const handle = document.createElement('button');
     handle.className = 'rotation-handle';
@@ -670,6 +762,60 @@ function addRotationHandle(elementDiv, element) {
     handle.textContent = '↻';
     makeRotatable(handle, elementDiv, element);
     elementDiv.appendChild(handle);
+}
+
+function applyImageCropStyles(img, element) {
+    const crop = element.crop;
+    const isFlipped = Boolean(element.flipped);
+
+    img.style.position = 'absolute';
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.objectFit = 'fill';
+    img.style.transformOrigin = 'center center';
+    img.style.transform = isFlipped ? 'scaleX(-1)' : 'none';
+
+    if (!crop) {
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.left = '0';
+        img.style.top = '0';
+        return;
+    }
+
+    const safeWidth = Math.max(crop.width, 0.05);
+    const safeHeight = Math.max(crop.height, 0.05);
+    img.style.width = `${100 / safeWidth}%`;
+    img.style.height = `${100 / safeHeight}%`;
+    img.style.left = `${-(crop.x / safeWidth) * 100}%`;
+    img.style.top = `${-(crop.y / safeHeight) * 100}%`;
+}
+
+function addCropOverlay(elementDiv, element) {
+    const crop = activeCropSession?.draftCrop;
+    if (!crop) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'crop-overlay';
+    overlay.style.left = `${crop.x * 100}%`;
+    overlay.style.top = `${crop.y * 100}%`;
+    overlay.style.width = `${crop.width * 100}%`;
+    overlay.style.height = `${crop.height * 100}%`;
+
+    const frame = document.createElement('div');
+    frame.className = 'crop-frame';
+    overlay.appendChild(frame);
+
+    makeCropMovable(overlay, element);
+
+    ['nw', 'ne', 'sw', 'se'].forEach(position => {
+        const handle = document.createElement('div');
+        handle.className = `crop-handle crop-handle-${position}`;
+        makeCropResizable(handle, overlay, element, position);
+        overlay.appendChild(handle);
+    });
+
+    elementDiv.appendChild(overlay);
 }
 
 function makeRotatable(handle, elementDiv, element) {
@@ -709,6 +855,9 @@ function makeDraggable(elementDiv, element) {
     elementDiv.addEventListener('mousedown', (e) => {
         if (e.target.classList.contains('resize-handle') ||
             e.target.classList.contains('rotation-handle') ||
+            e.target.classList.contains('crop-overlay') ||
+            e.target.classList.contains('crop-frame') ||
+            e.target.classList.contains('crop-handle') ||
             e.target.classList.contains('delete-btn') ||
             e.target.classList.contains('collapse-btn')) {
             return;
@@ -765,25 +914,25 @@ function selectElement(elementId) {
             addResizeHandles(element, selectedElement);
         }
 
-        if (selectedElement && (selectedElement.type === 'shape' || selectedElement.type === 'text')) {
+        if (selectedElement && ['shape', 'text', 'image'].includes(selectedElement.type)) {
             addRotationHandle(element, selectedElement);
         }
         
-        // Обновляем цветовые пикеры для фигур
-        if (selectedElement && selectedElement.type === 'shape') {
-            document.getElementById('shapeFillColorPicker').value = selectedElement.fillColor || '#667eea';
-            document.getElementById('shapeStrokeColorPicker').value = selectedElement.strokeColor || '#000000';
-        }
-
         if (supportsTextStyling(selectedElement)) {
             syncTextControls(selectedElement);
         }
+
+        syncImageCropButtons();
+        syncShapeControls();
     }
 }
 
 function deleteElement(elementId) {
     const slide = slides[currentSlideIndex];
     slide.elements = slide.elements.filter(el => el.id !== elementId);
+    if (activeCropSession && activeCropSession.elementId === elementId) {
+        activeCropSession = null;
+    }
     renderSlide();
 }
 
@@ -855,8 +1004,9 @@ function applyAnimation() {
     }
 
     selectedElement.animation = animation;
+    const selectedId = selectedElement.id;
     renderSlide();
-    selectElement(selectedElement.id);
+    selectElement(selectedId);
 }
 
 // Стили
@@ -1138,12 +1288,109 @@ async function exportToPDF() {
     }
 }
 
+async function exportCurrentSlideToGIF() {
+    if (!slides || slides.length === 0) {
+        alert('Нет слайдов для экспорта');
+        return;
+    }
+
+    if (!window.GIF) {
+        alert('GIF библиотека не загружена. Обновите страницу и попробуйте снова.');
+        return;
+    }
+
+    const exportBtn = document.getElementById('exportGIFBtn');
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Готовим GIF...';
+    document.getElementById('exportModal').style.display = 'none';
+
+    try {
+        const slideElement = document.getElementById('currentSlide');
+        if (!slideElement) {
+            throw new Error('Слайд не найден');
+        }
+
+        const wasSelected = selectedElement ? selectedElement.id : null;
+        document.querySelectorAll('.slide-element').forEach(el => {
+            el.classList.remove('selected');
+            el.querySelectorAll('.resize-handle').forEach(h => h.remove());
+            el.querySelectorAll('.rotation-handle').forEach(h => h.remove());
+        });
+        selectedElement = null;
+
+        restartSlideAnimations(slideElement);
+        await new Promise(resolve => setTimeout(resolve, 80));
+
+        const frameDelay = 100;
+        const framesCount = 20;
+        const gif = new window.GIF({
+            workers: 2,
+            quality: 10,
+            width: slideElement.clientWidth,
+            height: slideElement.clientHeight,
+            workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+        });
+
+        for (let i = 0; i < framesCount; i++) {
+            const canvas = await html2canvas(slideElement, {
+                scale: 1,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff',
+                logging: false,
+                width: slideElement.clientWidth,
+                height: slideElement.clientHeight
+            });
+            gif.addFrame(canvas, { delay: frameDelay, copy: true });
+            await new Promise(resolve => setTimeout(resolve, frameDelay));
+        }
+
+        const blob = await new Promise((resolve, reject) => {
+            gif.on('finished', resolve);
+            gif.on('abort', () => reject(new Error('Рендер GIF прерван')));
+            gif.render();
+        });
+
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `slide-${currentSlideIndex + 1}.gif`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+
+        if (wasSelected) {
+            selectElement(wasSelected);
+        } else {
+            renderSlide();
+        }
+    } catch (error) {
+        console.error('Ошибка при экспорте GIF:', error);
+        alert('Не удалось экспортировать GIF. Проверьте консоль для деталей.');
+    } finally {
+        exportBtn.disabled = false;
+        exportBtn.textContent = 'Текущий слайд в GIF';
+    }
+}
+
+function restartSlideAnimations(slideElement) {
+    const animatedElements = slideElement.querySelectorAll('.slide-element[class*="animate-"]');
+    animatedElements.forEach(el => {
+        el.style.animation = 'none';
+    });
+    // Принудительный reflow для перезапуска CSS анимаций
+    void slideElement.offsetHeight;
+    animatedElements.forEach(el => {
+        el.style.animation = '';
+    });
+}
+
 
 // Добавление фигур
 function addShape(shapeType) {
     const elementId = `element-${++elementIdCounter}`;
     const fillColor = document.getElementById('shapeFillColorPicker').value;
     const strokeColor = document.getElementById('shapeStrokeColorPicker').value;
+    const strokeWidth = parseInt(document.getElementById('shapeStrokeWidthSlider').value, 10) || 2;
+    const isCircle = shapeType === 'circle';
     
     const element = {
         id: elementId,
@@ -1151,11 +1398,11 @@ function addShape(shapeType) {
         shapeType: shapeType,
         x: 200,
         y: 200,
-        width: 200,
-        height: 150,
+        width: isCircle ? 180 : 200,
+        height: isCircle ? 180 : 150,
         fillColor: fillColor,
         strokeColor: strokeColor,
-        strokeWidth: 2,
+        strokeWidth: strokeWidth,
         animation: '',
         rotation: 0,
         content: '',
@@ -1198,6 +1445,42 @@ function updateShapeStrokeColor() {
     const shapeElement = document.querySelector(`#${selectedElement.id} .shape-element`);
     if (shapeElement) {
         shapeElement.setAttribute('stroke', color);
+    }
+}
+
+function updateShapeStrokeWidth() {
+    const width = parseInt(document.getElementById('shapeStrokeWidthSlider').value, 10) || 2;
+    document.getElementById('shapeStrokeWidthValue').textContent = `${width}px`;
+
+    if (!selectedElement || selectedElement.type !== 'shape') return;
+
+    selectedElement.strokeWidth = width;
+
+    const shapeElement = document.querySelector(`#${selectedElement.id} .shape-element`);
+    if (shapeElement) {
+        shapeElement.setAttribute('stroke-width', width);
+    }
+}
+
+function syncShapeControls() {
+    const fillPicker = document.getElementById('shapeFillColorPicker');
+    const strokePicker = document.getElementById('shapeStrokeColorPicker');
+    const strokeWidthSlider = document.getElementById('shapeStrokeWidthSlider');
+    const strokeWidthValue = document.getElementById('shapeStrokeWidthValue');
+    const isShapeSelected = selectedElement && selectedElement.type === 'shape';
+
+    fillPicker.disabled = !isShapeSelected;
+    strokePicker.disabled = !isShapeSelected;
+    strokeWidthSlider.disabled = !isShapeSelected;
+
+    if (isShapeSelected) {
+        fillPicker.value = selectedElement.fillColor || '#667eea';
+        strokePicker.value = selectedElement.strokeColor || '#000000';
+        const width = selectedElement.strokeWidth || 2;
+        strokeWidthSlider.value = width;
+        strokeWidthValue.textContent = `${width}px`;
+    } else {
+        strokeWidthValue.textContent = `${strokeWidthSlider.value}px`;
     }
 }
 
@@ -1246,5 +1529,204 @@ function normalizeLoadedElement(element) {
         normalized.content = normalized.content || '';
     }
 
+    if (normalized.type === 'image') {
+        normalized.crop = normalized.crop || null;
+        normalized.flipped = Boolean(normalized.flipped);
+    }
+
     return normalized;
+}
+
+function toggleImageCropMode() {
+    if (!selectedElement || selectedElement.type !== 'image') {
+        alert('Сначала выберите изображение.');
+        return;
+    }
+
+    if (activeCropSession && activeCropSession.elementId === selectedElement.id) {
+        applyImageCrop();
+        return;
+    }
+
+    activeCropSession = {
+        elementId: selectedElement.id,
+        draftCrop: selectedElement.crop
+            ? { ...selectedElement.crop }
+            : { x: 0.1, y: 0.1, width: 0.8, height: 0.8 }
+    };
+
+    const selectedId = selectedElement.id;
+    renderSlide();
+    selectElement(selectedId);
+    syncImageCropButtons();
+}
+
+function applyImageCrop() {
+    if (!activeCropSession || !selectedElement || selectedElement.type !== 'image') {
+        return;
+    }
+
+    selectedElement.crop = clampCropRect(activeCropSession.draftCrop);
+    const selectedId = selectedElement.id;
+    activeCropSession = null;
+    renderSlide();
+    selectElement(selectedId);
+}
+
+function resetImageCrop() {
+    if (!selectedElement || selectedElement.type !== 'image') {
+        alert('Сначала выберите изображение.');
+        return;
+    }
+
+    selectedElement.crop = null;
+    const selectedId = selectedElement.id;
+    if (activeCropSession && activeCropSession.elementId === selectedElement.id) {
+        activeCropSession = null;
+    }
+    renderSlide();
+    selectElement(selectedId);
+}
+
+function syncImageCropButtons() {
+    const mirrorBtn = document.getElementById('mirrorImageBtn');
+    const cropBtn = document.getElementById('startCropBtn');
+    const resetBtn = document.getElementById('resetCropBtn');
+    const isImageSelected = selectedElement && selectedElement.type === 'image';
+    const cropActive = isImageSelected && activeCropSession && activeCropSession.elementId === selectedElement.id;
+    const isFlipped = isImageSelected && Boolean(selectedElement.flipped);
+
+    mirrorBtn.textContent = isFlipped ? 'Убрать зеркало' : 'Отзеркалить';
+    mirrorBtn.disabled = !isImageSelected;
+    cropBtn.textContent = cropActive ? 'Применить обрезку' : 'Обрезать фото';
+    cropBtn.disabled = !isImageSelected;
+    resetBtn.disabled = !isImageSelected;
+}
+
+function toggleImageMirror() {
+    if (!selectedElement || selectedElement.type !== 'image') {
+        alert('Сначала выберите изображение.');
+        return;
+    }
+
+    selectedElement.flipped = !selectedElement.flipped;
+    const selectedId = selectedElement.id;
+    renderSlide();
+    selectElement(selectedId);
+}
+
+function makeCropMovable(overlay, element) {
+    overlay.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('crop-handle')) {
+            return;
+        }
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startCrop = { ...activeCropSession.draftCrop };
+
+        const onMove = (moveEvent) => {
+            const deltaX = (moveEvent.clientX - startX) / element.width;
+            const deltaY = (moveEvent.clientY - startY) / element.height;
+            const nextCrop = {
+                ...startCrop,
+                x: startCrop.x + deltaX,
+                y: startCrop.y + deltaY
+            };
+
+            const clamped = clampCropRect(nextCrop, startCrop.width, startCrop.height);
+            activeCropSession.draftCrop = clamped;
+            updateCropOverlay(overlay, clamped);
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+}
+
+function makeCropResizable(handle, overlay, element, position) {
+    handle.addEventListener('mousedown', (e) => {
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startCrop = { ...activeCropSession.draftCrop };
+
+        const onMove = (moveEvent) => {
+            const deltaX = (moveEvent.clientX - startX) / element.width;
+            const deltaY = (moveEvent.clientY - startY) / element.height;
+            let nextCrop = { ...startCrop };
+
+            if (position.includes('n')) {
+                nextCrop.y = startCrop.y + deltaY;
+                nextCrop.height = startCrop.height - deltaY;
+            }
+            if (position.includes('s')) {
+                nextCrop.height = startCrop.height + deltaY;
+            }
+            if (position.includes('w')) {
+                nextCrop.x = startCrop.x + deltaX;
+                nextCrop.width = startCrop.width - deltaX;
+            }
+            if (position.includes('e')) {
+                nextCrop.width = startCrop.width + deltaX;
+            }
+
+            const clamped = clampCropRect(nextCrop);
+            activeCropSession.draftCrop = clamped;
+            updateCropOverlay(overlay, clamped);
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+}
+
+function updateCropOverlay(overlay, crop) {
+    overlay.style.left = `${crop.x * 100}%`;
+    overlay.style.top = `${crop.y * 100}%`;
+    overlay.style.width = `${crop.width * 100}%`;
+    overlay.style.height = `${crop.height * 100}%`;
+}
+
+function clampCropRect(crop, fixedWidth = null, fixedHeight = null) {
+    const minSize = 0.1;
+    const next = { ...crop };
+
+    next.width = Math.max(fixedWidth ?? next.width, minSize);
+    next.height = Math.max(fixedHeight ?? next.height, minSize);
+
+    if (next.x < 0) next.x = 0;
+    if (next.y < 0) next.y = 0;
+    if (next.x + next.width > 1) next.x = 1 - next.width;
+    if (next.y + next.height > 1) next.y = 1 - next.height;
+
+    if (fixedWidth === null && next.width > 1) next.width = 1;
+    if (fixedHeight === null && next.height > 1) next.height = 1;
+
+    if (fixedWidth === null && next.x + next.width > 1) {
+        next.width = 1 - next.x;
+    }
+    if (fixedHeight === null && next.y + next.height > 1) {
+        next.height = 1 - next.y;
+    }
+
+    next.width = Math.max(next.width, minSize);
+    next.height = Math.max(next.height, minSize);
+    next.x = Math.min(Math.max(next.x, 0), 1 - next.width);
+    next.y = Math.min(Math.max(next.y, 0), 1 - next.height);
+
+    return next;
 }
