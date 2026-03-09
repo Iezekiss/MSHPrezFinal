@@ -74,7 +74,7 @@ function setupEventListeners() {
         document.getElementById('exportModal').style.display = 'block';
     });
     document.getElementById('exportPDFBtn').addEventListener('click', exportToPDF);
-    document.getElementById('exportJpegZipBtn').addEventListener('click', exportSlidesToJpegArchive);
+    document.getElementById('exportJpegBtn').addEventListener('click', exportSlidesToJpegFiles);
 
     // Закрытие модального окна
     document.querySelector('.close').addEventListener('click', () => {
@@ -1507,25 +1507,20 @@ async function exportToPDF() {
     }
 }
 
-async function exportSlidesToJpegArchive() {
+async function exportSlidesToJpegFiles() {
     if (!slides || slides.length === 0) {
         alert('Нет слайдов для экспорта');
         return;
     }
 
-    if (!window.JSZip) {
-        alert('Библиотека ZIP не загружена. Обновите страницу и попробуйте снова.');
-        return;
-    }
-
-    const exportBtn = document.getElementById('exportJpegZipBtn');
+    const exportBtn = document.getElementById('exportJpegBtn');
     exportBtn.disabled = true;
-    exportBtn.textContent = 'Готовим архив...';
+    exportBtn.textContent = 'Готовим кадры...';
     document.getElementById('exportModal').style.display = 'none';
 
     try {
         const savedSlideIndex = currentSlideIndex;
-        const zip = new window.JSZip();
+        const downloads = [];
 
         for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
             currentSlideIndex = slideIndex;
@@ -1536,29 +1531,30 @@ async function exportSlidesToJpegArchive() {
             const canvas = await captureCurrentSlideCanvas(1, renderedSlideElement.clientWidth, renderedSlideElement.clientHeight);
             const jpgBlob = await canvasToJpegBlob(canvas, 0.72);
             const paddedIndex = String(slideIndex + 1).padStart(3, '0');
-            zip.file(`slide-${paddedIndex}.jpg`, jpgBlob);
+            downloads.push({ filename: `slide-${paddedIndex}.jpg`, blob: jpgBlob });
         }
 
-        const archiveBlob = await zip.generateAsync({
-            type: 'blob',
-            compression: 'DEFLATE',
-            compressionOptions: { level: 4 }
-        });
-
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(archiveBlob);
-        link.download = 'slides-jpeg.zip';
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        for (let i = 0; i < downloads.length; i++) {
+            const { filename, blob } = downloads[i];
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            await new Promise(resolve => setTimeout(resolve, 150));
+        }
 
         currentSlideIndex = savedSlideIndex;
         renderSlide();
     } catch (error) {
-        console.error('Ошибка при экспорте JPEG ZIP:', error);
-        alert('Не удалось экспортировать архив JPEG. Проверьте консоль для деталей.');
+        console.error('Ошибка при экспорте JPEG кадров:', error);
+        alert('Не удалось экспортировать JPEG-кадры. Проверьте консоль для деталей.');
     } finally {
         exportBtn.disabled = false;
-        exportBtn.textContent = 'Экспорт кадров (JPEG ZIP)';
+        exportBtn.textContent = 'Экспорт кадров (JPEG)';
     }
 }
 
