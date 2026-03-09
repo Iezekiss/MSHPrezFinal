@@ -1518,17 +1518,27 @@ async function exportSlidesToJpegFiles() {
     exportBtn.textContent = 'Готовим кадры...';
     document.getElementById('exportModal').style.display = 'none';
 
+    const savedSlideIndex = currentSlideIndex;
+    let wasPlaybackMode = false;
     try {
-        const savedSlideIndex = currentSlideIndex;
+        wasPlaybackMode = isPlaybackMode;
+        if (wasPlaybackMode) {
+            stopSlidesPreview();
+        }
+
+        const exportWidth = 900;
+        const exportHeight = 506;
         const downloads = [];
 
         for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
             currentSlideIndex = slideIndex;
+            if (!slides[slideIndex].drawings) {
+                slides[slideIndex].drawings = [];
+            }
             renderSlide();
             await new Promise(resolve => setTimeout(resolve, 120));
 
-            const renderedSlideElement = document.getElementById('currentSlide');
-            const canvas = await captureCurrentSlideCanvas(1, renderedSlideElement.clientWidth, renderedSlideElement.clientHeight);
+            const canvas = await captureCurrentSlideCanvas(2, exportWidth, exportHeight);
             const jpgBlob = await canvasToJpegBlob(canvas, 0.72);
             const paddedIndex = String(slideIndex + 1).padStart(3, '0');
             downloads.push({ filename: `slide-${paddedIndex}.jpg`, blob: jpgBlob });
@@ -1547,12 +1557,15 @@ async function exportSlidesToJpegFiles() {
             await new Promise(resolve => setTimeout(resolve, 150));
         }
 
-        currentSlideIndex = savedSlideIndex;
-        renderSlide();
     } catch (error) {
         console.error('Ошибка при экспорте JPEG кадров:', error);
         alert('Не удалось экспортировать JPEG-кадры. Проверьте консоль для деталей.');
     } finally {
+        currentSlideIndex = Math.min(savedSlideIndex, Math.max(0, slides.length - 1));
+        renderSlide();
+        if (wasPlaybackMode && !isPlaybackMode) {
+            startSlidesPreview();
+        }
         exportBtn.disabled = false;
         exportBtn.textContent = 'Экспорт кадров (JPEG)';
     }
@@ -1575,8 +1588,8 @@ async function captureCurrentSlideCanvas(scale = 1, width = null, height = null)
     if (!slideElement) throw new Error('Слайд не найден');
 
     const rect = slideElement.getBoundingClientRect();
-    const renderWidth = Math.round(width || rect.width || slideElement.clientWidth);
-    const renderHeight = Math.round(height || rect.height || slideElement.clientHeight);
+    const renderWidth = Math.round(width || rect.width || slideElement.clientWidth || 900);
+    const renderHeight = Math.round(height || rect.height || slideElement.clientHeight || 506);
 
     // Рендерим клон слайда вне экрана, чтобы избежать артефактов layout/scroll при экспорте
     const clone = slideElement.cloneNode(true);
