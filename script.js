@@ -5,6 +5,13 @@ let selectedElement = null;
 let elementIdCounter = 0;
 let activeEditable = null;
 let activeCropSession = null;
+let playbackTimer = null;
+let playbackFps = 2;
+let isPlaybackMode = false;
+let isDrawingMode = false;
+let drawingColor = '#ff4d6d';
+let brushSize = 2;
+let drawingTool = 'brush';
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
@@ -24,6 +31,16 @@ function setupEventListeners() {
     document.getElementById('addSlideBtn').addEventListener('click', createNewSlide);
     document.getElementById('prevSlideBtn').addEventListener('click', () => changeSlide(-1));
     document.getElementById('nextSlideBtn').addEventListener('click', () => changeSlide(1));
+    document.getElementById('previewSlidesBtn').addEventListener('click', toggleSlidesPreview);
+    document.getElementById('playbackSpeedSlider').addEventListener('input', updatePlaybackSpeed);
+    document.getElementById('toggleDrawingBtn').addEventListener('click', toggleDrawingMode);
+    document.getElementById('drawingColorPicker').addEventListener('input', updateDrawingColor);
+    document.querySelectorAll('#brushSizeGroup .btn-toggle').forEach(btn => {
+        btn.addEventListener('click', () => updateBrushSize(parseInt(btn.dataset.size, 10)));
+    });
+    document.querySelectorAll('#drawingToolGroup .btn-toggle').forEach(btn => {
+        btn.addEventListener('click', () => setDrawingTool(btn.dataset.tool));
+    });
 
     // Добавление элементов
     document.getElementById('addTextBtn').addEventListener('click', addTextElement);
@@ -57,7 +74,7 @@ function setupEventListeners() {
         document.getElementById('exportModal').style.display = 'block';
     });
     document.getElementById('exportPDFBtn').addEventListener('click', exportToPDF);
-    document.getElementById('exportGIFBtn').addEventListener('click', exportCurrentSlideToGIF);
+    document.getElementById('exportJpegZipBtn').addEventListener('click', exportSlidesToJpegArchive);
 
     // Закрытие модального окна
     document.querySelector('.close').addEventListener('click', () => {
@@ -109,6 +126,9 @@ function setupEventListeners() {
     });
 
     syncShapeControls();
+    updatePlaybackSpeedLabel();
+    syncPreviewControls();
+    syncDrawingControls();
 }
 
 // Управление слайдами
@@ -117,7 +137,8 @@ function createNewSlide() {
     slides.push({
         id: slideId,
         elements: [],
-        background: '#ffffff'
+        background: '#ffffff',
+        drawings: []
     });
     currentSlideIndex = slides.length - 1;
     renderSlide();
@@ -126,6 +147,7 @@ function createNewSlide() {
 }
 
 function changeSlide(direction) {
+    if (isPlaybackMode) return;
     const newIndex = currentSlideIndex + direction;
     if (newIndex >= 0 && newIndex < slides.length) {
         currentSlideIndex = newIndex;
@@ -150,9 +172,12 @@ function renderSlide() {
         const elementDiv = createElementDiv(element);
         slideContent.appendChild(elementDiv);
     });
+    createDrawingLayer(slideContent, currentSlide);
 
     syncImageCropButtons();
     syncShapeControls();
+    syncPreviewControls();
+    syncDrawingControls();
 
     // Обновляем активный слайд в списке
     updateSlidesList();
@@ -204,6 +229,7 @@ function updateSlidesList() {
         thumbnail.appendChild(actions);
         
         thumbnail.addEventListener('click', (e) => {
+            if (isPlaybackMode) return;
             if (!deleteBtn || e.target !== deleteBtn) {
                 currentSlideIndex = index;
                 renderSlide();
@@ -212,6 +238,10 @@ function updateSlidesList() {
         });
 
         thumbnail.addEventListener('dragstart', (e) => {
+            if (isPlaybackMode) {
+                e.preventDefault();
+                return;
+            }
             thumbnail.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', String(index));
@@ -251,6 +281,214 @@ function updateSlidesList() {
 function updateSlideCounter() {
     document.getElementById('slideCounter').textContent = 
         `Слайд ${currentSlideIndex + 1} из ${slides.length}`;
+}
+
+function updatePlaybackSpeed() {
+    const slider = document.getElementById('playbackSpeedSlider');
+    playbackFps = Math.max(1, parseInt(slider.value, 10) || 1);
+    updatePlaybackSpeedLabel();
+    if (isPlaybackMode) {
+        startPlaybackTimer();
+    }
+}
+
+function updatePlaybackSpeedLabel() {
+    document.getElementById('playbackSpeedValue').textContent = `${playbackFps} кадр/с`;
+}
+
+function toggleSlidesPreview() {
+    if (isPlaybackMode) {
+        stopSlidesPreview();
+    } else {
+        startSlidesPreview();
+    }
+}
+
+function startSlidesPreview() {
+    if (!slides.length) return;
+    isPlaybackMode = true;
+    selectedElement = null;
+    activeEditable = null;
+    activeCropSession = null;
+    document.body.classList.add('playback-mode');
+    renderSlide();
+    updateSlideCounter();
+    startPlaybackTimer();
+}
+
+function stopSlidesPreview() {
+    isPlaybackMode = false;
+    clearPlaybackTimer();
+    document.body.classList.remove('playback-mode');
+    renderSlide();
+    updateSlideCounter();
+}
+
+function clearPlaybackTimer() {
+    if (playbackTimer) {
+        clearInterval(playbackTimer);
+        playbackTimer = null;
+    }
+}
+
+function startPlaybackTimer() {
+    clearPlaybackTimer();
+    const interval = Math.max(80, Math.round(1000 / playbackFps));
+    playbackTimer = setInterval(() => {
+        if (!isPlaybackMode || !slides.length) return;
+        currentSlideIndex = (currentSlideIndex + 1) % slides.length;
+        renderSlide();
+        updateSlideCounter();
+    }, interval);
+}
+
+function syncPreviewControls() {
+    const previewBtn = document.getElementById('previewSlidesBtn');
+    const prevBtn = document.getElementById('prevSlideBtn');
+    const nextBtn = document.getElementById('nextSlideBtn');
+    const addSlideBtn = document.getElementById('addSlideBtn');
+    previewBtn.textContent = isPlaybackMode ? '⏹ Остановить' : '▶ Просмотр';
+    prevBtn.disabled = isPlaybackMode;
+    nextBtn.disabled = isPlaybackMode;
+    addSlideBtn.disabled = isPlaybackMode;
+}
+
+function toggleDrawingMode() {
+    isDrawingMode = !isDrawingMode;
+    if (isDrawingMode) {
+        selectedElement = null;
+        document.querySelectorAll('.slide-element').forEach(el => {
+            el.classList.remove('selected');
+            el.querySelectorAll('.resize-handle').forEach(h => h.remove());
+            el.querySelectorAll('.rotation-handle').forEach(h => h.remove());
+        });
+    }
+    syncDrawingControls();
+    renderSlide();
+}
+
+function updateDrawingColor() {
+    drawingColor = document.getElementById('drawingColorPicker').value;
+}
+
+function updateBrushSize(size) {
+    brushSize = size;
+    document.querySelectorAll('#brushSizeGroup .btn-toggle').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.size, 10) === size);
+    });
+}
+
+function setDrawingTool(tool) {
+    drawingTool = tool === 'eraser' ? 'eraser' : 'brush';
+    syncDrawingControls();
+}
+
+function syncDrawingControls() {
+    const drawBtn = document.getElementById('toggleDrawingBtn');
+    const colorPicker = document.getElementById('drawingColorPicker');
+    drawBtn.textContent = isDrawingMode ? 'Выключить кисть' : 'Включить кисть';
+    drawBtn.classList.toggle('active', isDrawingMode);
+    colorPicker.value = drawingColor;
+    colorPicker.disabled = drawingTool === 'eraser';
+    document.querySelectorAll('#drawingToolGroup .btn-toggle').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tool === drawingTool);
+    });
+    document.querySelectorAll('#brushSizeGroup .btn-toggle').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.size, 10) === brushSize);
+    });
+}
+
+function createDrawingLayer(slideContent, slide) {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'drawing-layer';
+    canvas.style.pointerEvents = (isDrawingMode && !isPlaybackMode) ? 'auto' : 'none';
+    canvas.style.cursor = (isDrawingMode && !isPlaybackMode) ? 'crosshair' : 'default';
+
+    const width = slideContent.clientWidth;
+    const height = slideContent.clientHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    renderStrokes(ctx, slide.drawings || [], width, height);
+    attachDrawingEvents(canvas, slide, width, height);
+    slideContent.appendChild(canvas);
+}
+
+function renderStrokes(ctx, drawings, width, height) {
+    drawings.forEach(stroke => {
+        if (!stroke.points || stroke.points.length < 2) return;
+        const isEraser = stroke.tool === 'eraser';
+        ctx.beginPath();
+        ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = stroke.color || '#ff4d6d';
+        ctx.lineWidth = stroke.size || 2;
+        ctx.moveTo(stroke.points[0].x * width, stroke.points[0].y * height);
+        for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x * width, stroke.points[i].y * height);
+        }
+        ctx.stroke();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+}
+
+function attachDrawingEvents(canvas, slide, width, height) {
+    let drawing = false;
+    let currentStroke = null;
+    let lastPoint = null;
+    const ctx = canvas.getContext('2d');
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (!isDrawingMode || isPlaybackMode) return;
+        const point = getRelativePoint(e, canvas);
+        drawing = true;
+        currentStroke = { tool: drawingTool, color: drawingColor, size: brushSize, points: [point] };
+        slide.drawings = slide.drawings || [];
+        slide.drawings.push(currentStroke);
+        lastPoint = point;
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!drawing || !currentStroke) return;
+        const point = getRelativePoint(e, canvas);
+        currentStroke.points.push(point);
+        ctx.globalCompositeOperation = currentStroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+        ctx.beginPath();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = currentStroke.color;
+        ctx.lineWidth = currentStroke.size;
+        ctx.moveTo(lastPoint.x * width, lastPoint.y * height);
+        ctx.lineTo(point.x * width, point.y * height);
+        ctx.stroke();
+        lastPoint = point;
+    });
+
+    const stopDrawing = () => {
+        ctx.globalCompositeOperation = 'source-over';
+        drawing = false;
+        currentStroke = null;
+        lastPoint = null;
+    };
+
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseleave', stopDrawing);
+}
+
+function getRelativePoint(event, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height))
+    };
 }
 
 // Добавление элементов
@@ -368,7 +606,7 @@ function createElementDiv(element) {
     div.style.transform = `rotate(${element.rotation || 0}deg)`;
     div.style.transformOrigin = 'center center';
 
-    if (element.animation) {
+    if (element.animation && !isPlaybackMode) {
         div.classList.add(`animate-${element.animation}`);
     }
 
@@ -1213,9 +1451,12 @@ async function exportToPDF() {
     document.getElementById('exportModal').style.display = 'none';
 
     try {
-        // Используем jsPDF напрямую для более надежного экспорта
-        const jsPDF = window.jspdf.jsPDF || window.jspdf;
-        const pdf = new jsPDF({
+        const JsPDFCtor = window.jspdf?.jsPDF || window.jsPDF || window.jspdf;
+        if (!JsPDFCtor) {
+            throw new Error('jsPDF не найден');
+        }
+
+        const pdf = new JsPDFCtor({
             orientation: 'landscape',
             unit: 'mm',
             format: 'a4'
@@ -1242,29 +1483,7 @@ async function exportToPDF() {
             // Ждем рендеринга
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            const slideElement = document.getElementById('currentSlide');
-            
-            // Ждем загрузки всех изображений
-            const imgs = slideElement.querySelectorAll('img');
-            await Promise.all(Array.from(imgs).map(img => {
-                if (img.complete) return Promise.resolve();
-                return new Promise((resolve) => {
-                    img.onload = resolve;
-                    img.onerror = resolve;
-                    setTimeout(resolve, 2000); // таймаут на случай проблем
-                });
-            }));
-
-            // Конвертируем слайд в canvas
-            const canvas = await html2canvas(slideElement, {
-                scale: 2,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                width: slideWidth,
-                height: slideHeight
-            });
+            const canvas = await captureCurrentSlideCanvas(2, slideWidth, slideHeight);
 
             // Добавляем canvas в PDF
             const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -1288,99 +1507,133 @@ async function exportToPDF() {
     }
 }
 
-async function exportCurrentSlideToGIF() {
+async function exportSlidesToJpegArchive() {
     if (!slides || slides.length === 0) {
         alert('Нет слайдов для экспорта');
         return;
     }
 
-    if (!window.GIF) {
-        alert('GIF библиотека не загружена. Обновите страницу и попробуйте снова.');
+    if (!window.JSZip) {
+        alert('Библиотека ZIP не загружена. Обновите страницу и попробуйте снова.');
         return;
     }
 
-    const exportBtn = document.getElementById('exportGIFBtn');
+    const exportBtn = document.getElementById('exportJpegZipBtn');
     exportBtn.disabled = true;
-    exportBtn.textContent = 'Готовим GIF...';
+    exportBtn.textContent = 'Готовим архив...';
     document.getElementById('exportModal').style.display = 'none';
 
     try {
-        const slideElement = document.getElementById('currentSlide');
-        if (!slideElement) {
-            throw new Error('Слайд не найден');
+        const savedSlideIndex = currentSlideIndex;
+        const zip = new window.JSZip();
+
+        for (let slideIndex = 0; slideIndex < slides.length; slideIndex++) {
+            currentSlideIndex = slideIndex;
+            renderSlide();
+            await new Promise(resolve => setTimeout(resolve, 120));
+
+            const renderedSlideElement = document.getElementById('currentSlide');
+            const canvas = await captureCurrentSlideCanvas(1, renderedSlideElement.clientWidth, renderedSlideElement.clientHeight);
+            const jpgBlob = await canvasToJpegBlob(canvas, 0.72);
+            const paddedIndex = String(slideIndex + 1).padStart(3, '0');
+            zip.file(`slide-${paddedIndex}.jpg`, jpgBlob);
         }
 
-        const wasSelected = selectedElement ? selectedElement.id : null;
-        document.querySelectorAll('.slide-element').forEach(el => {
-            el.classList.remove('selected');
-            el.querySelectorAll('.resize-handle').forEach(h => h.remove());
-            el.querySelectorAll('.rotation-handle').forEach(h => h.remove());
-        });
-        selectedElement = null;
-
-        restartSlideAnimations(slideElement);
-        await new Promise(resolve => setTimeout(resolve, 80));
-
-        const frameDelay = 100;
-        const framesCount = 20;
-        const gif = new window.GIF({
-            workers: 2,
-            quality: 10,
-            width: slideElement.clientWidth,
-            height: slideElement.clientHeight,
-            workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
-        });
-
-        for (let i = 0; i < framesCount; i++) {
-            const canvas = await html2canvas(slideElement, {
-                scale: 1,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-                width: slideElement.clientWidth,
-                height: slideElement.clientHeight
-            });
-            gif.addFrame(canvas, { delay: frameDelay, copy: true });
-            await new Promise(resolve => setTimeout(resolve, frameDelay));
-        }
-
-        const blob = await new Promise((resolve, reject) => {
-            gif.on('finished', resolve);
-            gif.on('abort', () => reject(new Error('Рендер GIF прерван')));
-            gif.render();
+        const archiveBlob = await zip.generateAsync({
+            type: 'blob',
+            compression: 'DEFLATE',
+            compressionOptions: { level: 4 }
         });
 
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `slide-${currentSlideIndex + 1}.gif`;
+        link.href = URL.createObjectURL(archiveBlob);
+        link.download = 'slides-jpeg.zip';
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 
-        if (wasSelected) {
-            selectElement(wasSelected);
-        } else {
-            renderSlide();
-        }
+        currentSlideIndex = savedSlideIndex;
+        renderSlide();
     } catch (error) {
-        console.error('Ошибка при экспорте GIF:', error);
-        alert('Не удалось экспортировать GIF. Проверьте консоль для деталей.');
+        console.error('Ошибка при экспорте JPEG ZIP:', error);
+        alert('Не удалось экспортировать архив JPEG. Проверьте консоль для деталей.');
     } finally {
         exportBtn.disabled = false;
-        exportBtn.textContent = 'Текущий слайд в GIF';
+        exportBtn.textContent = 'Экспорт кадров (JPEG ZIP)';
     }
 }
 
-function restartSlideAnimations(slideElement) {
-    const animatedElements = slideElement.querySelectorAll('.slide-element[class*="animate-"]');
-    animatedElements.forEach(el => {
-        el.style.animation = 'none';
+function canvasToJpegBlob(canvas, quality = 0.72) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) {
+                resolve(blob);
+                return;
+            }
+            reject(new Error('Не удалось создать JPEG blob'));
+        }, 'image/jpeg', quality);
     });
-    // Принудительный reflow для перезапуска CSS анимаций
-    void slideElement.offsetHeight;
-    animatedElements.forEach(el => {
-        el.style.animation = '';
+}
+
+async function captureCurrentSlideCanvas(scale = 1, width = null, height = null) {
+    const slideElement = document.getElementById('currentSlide');
+    if (!slideElement) throw new Error('Слайд не найден');
+
+    const rect = slideElement.getBoundingClientRect();
+    const renderWidth = Math.round(width || rect.width || slideElement.clientWidth);
+    const renderHeight = Math.round(height || rect.height || slideElement.clientHeight);
+
+    // Рендерим клон слайда вне экрана, чтобы избежать артефактов layout/scroll при экспорте
+    const clone = slideElement.cloneNode(true);
+    clone.id = 'exportSlideClone';
+    clone.style.position = 'fixed';
+    clone.style.left = '-10000px';
+    clone.style.top = '0';
+    clone.style.width = `${renderWidth}px`;
+    clone.style.height = `${renderHeight}px`;
+    clone.style.margin = '0';
+    clone.style.transform = 'none';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+    clone.style.zIndex = '-1';
+
+    clone.querySelectorAll('.delete-btn, .resize-handle, .rotation-handle, .crop-overlay, .collapse-btn').forEach(el => el.remove());
+    document.body.appendChild(clone);
+
+    // Canvas не копирует bitmap при cloneNode, переносим пиксели вручную
+    const sourceCanvases = slideElement.querySelectorAll('canvas');
+    const cloneCanvases = clone.querySelectorAll('canvas');
+    sourceCanvases.forEach((sourceCanvas, index) => {
+        const targetCanvas = cloneCanvases[index];
+        if (!targetCanvas) return;
+        targetCanvas.width = sourceCanvas.width;
+        targetCanvas.height = sourceCanvas.height;
+        targetCanvas.style.width = sourceCanvas.style.width;
+        targetCanvas.style.height = sourceCanvas.style.height;
+        const targetCtx = targetCanvas.getContext('2d');
+        targetCtx.drawImage(sourceCanvas, 0, 0);
     });
+
+    const imgs = clone.querySelectorAll('img');
+    await Promise.all(Array.from(imgs).map(img => {
+        if (img.complete) return Promise.resolve();
+        return new Promise(resolve => {
+            img.onload = resolve;
+            img.onerror = resolve;
+            setTimeout(resolve, 2000);
+        });
+    }));
+
+    try {
+        return await html2canvas(clone, {
+            scale,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            logging: false
+        });
+    } finally {
+        clone.remove();
+    }
 }
 
 
@@ -1493,6 +1746,7 @@ function loadPresentation(file) {
             slides.forEach(slide => {
                 slide.background = slide.background || '#ffffff';
                 slide.elements = (slide.elements || []).map(normalizeLoadedElement);
+                slide.drawings = (slide.drawings || []).map(normalizeLoadedStroke).filter(Boolean);
             });
             currentSlideIndex = 0;
             elementIdCounter = Math.max(...slides.flatMap(s => s.elements.map(el => {
@@ -1535,6 +1789,26 @@ function normalizeLoadedElement(element) {
     }
 
     return normalized;
+}
+
+function normalizeLoadedStroke(stroke) {
+    if (!stroke || !Array.isArray(stroke.points) || stroke.points.length < 2) {
+        return null;
+    }
+    const points = stroke.points
+        .filter(p => p && typeof p.x === 'number' && typeof p.y === 'number')
+        .map(p => ({
+            x: Math.min(1, Math.max(0, p.x)),
+            y: Math.min(1, Math.max(0, p.y))
+        }));
+    if (points.length < 2) return null;
+
+    return {
+        tool: stroke.tool === 'eraser' ? 'eraser' : 'brush',
+        color: stroke.color || '#ff4d6d',
+        size: Math.max(1, Math.min(20, parseInt(stroke.size, 10) || 2)),
+        points
+    };
 }
 
 function toggleImageCropMode() {
